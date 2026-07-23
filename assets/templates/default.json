@@ -1,0 +1,12 @@
+{
+  "name": "default",
+  "background": "#1a1a2e",
+  "foreground": "#ffffff",
+  "accent": "#ffd166",
+  "fontFamily": "PingFang SC",
+  "titleSize": 64,
+  "bodySize": 40,
+  "safeArea": { "top": 180, "bottom": 320, "left": 90, "right": 90 },
+  "maxCharsPerLine": 14,
+  "maxLines": 4
+}

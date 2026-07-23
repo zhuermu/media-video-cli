@@ -1,0 +1,11 @@
+# Test + coverage configuration (team-practices: 80% line coverage over the
+# pure-logic denominator only; thin subprocess glue is excluded from the
+# denominator — see team.md "Testing Posture").
+[test]
+coverage = true
+coverageThreshold = 0.8
+coverageSkipTestFiles = true
+
+# Denominator exclusions for future subprocess glue (U2+): the thin layers
+# that actually spawn FFmpeg / call external TTS are not unit-testable logic.
+coveragePathIgnorePatterns = ["src/adapters/**/run*.ts", "src/core/tts/backends/**"]

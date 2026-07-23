@@ -4,6 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "vagent": "bun run src/cli/main.ts",
     "check": "prettier --check . && bun test",
     "test": "bun test",
     "format": "prettier --write ."

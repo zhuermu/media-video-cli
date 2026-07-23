@@ -1,0 +1,15 @@
+# Credentials live only in gitignored .env (Mandated; NFR-6)
+.env
+
+# Dependencies
+node_modules/
+
+# Pipeline working data (per-video workspaces + registry data)
+videos/
+data/
+
+# Atomic-write leftovers (BR-U1-3 .tmp -> rename protocol)
+*.tmp
+
+# Coverage output
+coverage/

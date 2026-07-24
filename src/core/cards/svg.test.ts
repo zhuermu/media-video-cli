@@ -78,6 +78,46 @@ describe("buildCardSvg (Workflow 2)", () => {
     expect(svg).toContain(`font-size="${template.bodySize}"`);
   });
 
+  test("背景照片: <image> cover-fit + 遮罩 rect 于文字层之前，同输入确定性", () => {
+    const dataUri = "data:image/png;base64,aGVsbG8=";
+    const input = layout({
+      titleLines: ["带图要点"],
+      subtitlePages: [["口播字幕"]],
+      backgroundImageDataUri: dataUri,
+    });
+    const svg = buildCardSvg(input, 0, template);
+
+    // 满幅 cover-fit 照片 + 缺省遮罩（黑色 0.55）。
+    expect(svg).toContain(
+      `<image href="${dataUri}" width="1080" height="1920" preserveAspectRatio="xMidYMid slice"/>`,
+    );
+    expect(svg).toContain('fill="#000000" fill-opacity="0.55"/>');
+    // 层序: 底色 rect → 照片 → 遮罩 → 文字（title 仍在，且在遮罩之后）。
+    const overlayAt = svg.indexOf('fill-opacity="0.55"');
+    const imageAt = svg.indexOf("<image ");
+    const titleAt = svg.indexOf("带图要点");
+    expect(imageAt).toBeGreaterThan(svg.indexOf(`fill="${template.background}"`));
+    expect(overlayAt).toBeGreaterThan(imageAt);
+    expect(titleAt).toBeGreaterThan(overlayAt);
+    // 纯函数确定性（BR-U4-8）：同输入逐字符相等。
+    expect(buildCardSvg(input, 0, template)).toBe(svg);
+  });
+
+  test("背景照片: 模板自定义遮罩色/不透明度生效", () => {
+    const svg = buildCardSvg(
+      layout({ backgroundImageDataUri: "data:image/jpeg;base64,YWJj" }),
+      0,
+      { ...template, overlayColor: "#101020", overlayOpacity: 0.4 },
+    );
+    expect(svg).toContain('fill="#101020" fill-opacity="0.4"/>');
+  });
+
+  test("无背景照片: 输出不含 <image>/遮罩（回归锚点）", () => {
+    const svg = buildCardSvg(layout({ subtitlePages: [["字幕"]] }), 0, template);
+    expect(svg).not.toContain("<image");
+    expect(svg).not.toContain("fill-opacity");
+  });
+
   test("页码越界 → ValidationError；纯函数同输入逐字符相等", () => {
     expect(() => buildCardSvg(layout({}), 1, template)).toThrow(
       ValidationError,
@@ -141,6 +181,29 @@ describe("template 校验（载入校验 + BR-U4-11 警告）", () => {
     expect(warnings.length).toBe(2);
     expect(warnings.join("\n")).toContain("对比度");
     expect(warnings.join("\n")).toContain("36px");
+  });
+
+  test("overlay 字段: 合法值保留；overlayOpacity 超上限 0.85 → ValidationError", () => {
+    const { template: withOverlay } = validateTemplate({
+      ...validRaw,
+      overlayColor: "#111122",
+      overlayOpacity: 0.6,
+    });
+    expect(withOverlay.overlayColor).toBe("#111122");
+    expect(withOverlay.overlayOpacity).toBe(0.6);
+    // 未设置时字段缺省（buildCardSvg 落回 0.55/#000000 缺省值）。
+    const { template: plain } = validateTemplate(validRaw);
+    expect(plain.overlayOpacity).toBeUndefined();
+
+    expect(() =>
+      validateTemplate({ ...validRaw, overlayOpacity: 0.9 }),
+    ).toThrow(ValidationError);
+    expect(() =>
+      validateTemplate({ ...validRaw, overlayOpacity: -0.1 }),
+    ).toThrow(ValidationError);
+    expect(() =>
+      validateTemplate({ ...validRaw, overlayColor: "black" }),
+    ).toThrow(ValidationError);
   });
 
   test("contrastRatio: WCAG 公式锚点（白/黑 = 21:1）", () => {

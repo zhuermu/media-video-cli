@@ -165,7 +165,11 @@ function assertScriptShape(
   return { title, topic, segments, source };
 }
 
-/** Per-segment assertions: text ≤300, cardText ≤80, emphasis ⊂ cardText. */
+/**
+ * Per-segment assertions: text ≤300, cardText ≤80, emphasis ⊂ cardText,
+ * backgroundImage 扩展名 ∈ {.jpg,.jpeg,.png}（存在性不在此查 —
+ * validateScript 无 workdir 上下文，渲染期 frames.ts 负责）.
+ */
 function assertSegmentShape(
   raw: unknown,
   index: number,
@@ -173,7 +177,9 @@ function assertSegmentShape(
 ): Segment {
   const at = `segments[${index}]`;
   if (typeof raw !== "object" || raw === null) {
-    violations.push(`${at}: 必须为对象 { text, cardText, emphasis? }`);
+    violations.push(
+      `${at}: 必须为对象 { text, cardText, emphasis?, backgroundImage? }`,
+    );
     return { text: "", cardText: "" };
   }
   const seg = raw as Record<string, unknown>;
@@ -221,7 +227,28 @@ function assertSegmentShape(
     }
   }
 
-  return emphasis === undefined
-    ? { text, cardText }
-    : { text, cardText, emphasis };
+  let backgroundImage: string | undefined;
+  if (seg["backgroundImage"] !== undefined) {
+    const rawBg = seg["backgroundImage"];
+    if (!isNonEmptyString(rawBg)) {
+      violations.push(`${at}.backgroundImage: 必须为非空字符串（图片路径）`);
+    } else if (
+      !SCRIPT_CONSTRAINTS.backgroundImageExtensions.some((ext) =>
+        rawBg.toLowerCase().endsWith(ext),
+      )
+    ) {
+      violations.push(
+        `${at}.backgroundImage: "${rawBg}" 扩展名不支持` +
+          `（允许 ${SCRIPT_CONSTRAINTS.backgroundImageExtensions.join("/")}；` +
+          `文件存在性在渲染期检查）`,
+      );
+    } else {
+      backgroundImage = rawBg;
+    }
+  }
+
+  const segment: Segment = { text, cardText };
+  if (emphasis !== undefined) segment.emphasis = emphasis;
+  if (backgroundImage !== undefined) segment.backgroundImage = backgroundImage;
+  return segment;
 }

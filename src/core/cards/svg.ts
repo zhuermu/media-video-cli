@@ -2,18 +2,25 @@
  * @module @core/cards (svg)
  *
  * buildCardSvg — pure SVG string generation (Workflow 2): background →
- * title lines (emphasis highlighted via accent-filled tspans) → subtitle
- * page lines → page-dot indicator (multi-page only).
+ * optional background photo (cover-fit) + dark overlay → title lines
+ * (emphasis highlighted via accent-filled tspans) → subtitle page lines →
+ * page-dot indicator (multi-page only).
  *
  * Boundary rules honored here:
  * - BR-U4-7: every text node is XML-escaped (&<>"') — injection defense.
  * - BR-U4-8: pure function — no filesystem/Date/randomness; same input →
- *   character-identical output (FR-3.3 AC-1 snapshot anchor).
+ *   character-identical output (FR-3.3 AC-1 snapshot anchor). 背景照片
+ *   以 layout.backgroundImageDataUri（frames.ts 预读的 base64 字符串）
+ *   进入——本模块永不读文件.
  */
 
 import { ValidationError } from "@core/errors";
 
-import { CANVAS } from "./types";
+import {
+  CANVAS,
+  DEFAULT_OVERLAY_COLOR,
+  DEFAULT_OVERLAY_OPACITY,
+} from "./types";
 import type { CardLayout, CardTemplate, EmphasisRange } from "./types";
 
 /** Title line height factor (baseline-to-baseline = titleSize × this). */
@@ -74,9 +81,10 @@ function renderTitleLineContent(
 /**
  * Pure function (Workflow 2): layout page → 1080×1920 SVG string.
  *
- * Deterministic assembly order: background rect → title text elements →
- * subtitle text elements for `page` → page dots (only when the layout has
- * more than one subtitle page).
+ * Deterministic assembly order: background rect → [background photo
+ * (cover-fit `slice`) + overlay rect, 仅当 layout.backgroundImageDataUri
+ * 存在] → title text elements → subtitle text elements for `page` → page
+ * dots (only when the layout has more than one subtitle page).
  *
  * @throws ValidationError when `page` is outside [0, subtitlePages.length).
  */
@@ -105,6 +113,20 @@ export function buildCardSvg(
   parts.push(
     `  <rect width="${CANVAS.width}" height="${CANVAS.height}" fill="${escapeXml(template.background)}"/>`,
   );
+
+  // 背景照片（cover-fit 满幅）+ 深色遮罩。data URI 仅含 base64 字符集
+  // （[A-Za-z0-9+/=] 与 "data:image/...;base64," 前缀），不含 XML 特殊
+  // 字符——escapeXml 恒等通过，防御性保留（BR-U4-7）。
+  if (layout.backgroundImageDataUri !== undefined) {
+    const overlayColor = template.overlayColor ?? DEFAULT_OVERLAY_COLOR;
+    const overlayOpacity = template.overlayOpacity ?? DEFAULT_OVERLAY_OPACITY;
+    parts.push(
+      `  <image href="${escapeXml(layout.backgroundImageDataUri)}" width="${CANVAS.width}" height="${CANVAS.height}" preserveAspectRatio="xMidYMid slice"/>`,
+    );
+    parts.push(
+      `  <rect width="${CANVAS.width}" height="${CANVAS.height}" fill="${escapeXml(overlayColor)}" fill-opacity="${overlayOpacity}"/>`,
+    );
+  }
 
   // 要点区（title lines, emphasis via accent tspans）.
   const titleLineHeight = Math.round(template.titleSize * TITLE_LINE_HEIGHT);

@@ -16,13 +16,17 @@
  * - ADR-004: frames.json is written `.tmp` then atomically renamed; the
  *   persisted content equals the returned RenderFrame[] (idempotent re-run
  *   and human review anchor).
+ * - 背景照片幂等提醒（可接受的简化，文档化取舍）：带 backgroundImage 的
+ *   段，其 PNG 内容还取决于照片文件本身，但跳过判定仍只看
+ *   card-NN-*.png 是否存在——更换/修改照片文件后需手动删除受影响的
+ *   card-NN-*.png 再重跑才能生效。
  */
 
 import { existsSync } from "node:fs";
-import { mkdir, rename, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { isAbsolute, join } from "node:path";
 
-import { IoError, RenderError, ValidationError } from "@core/errors";
+import { IoError, NotFoundError, RenderError, ValidationError } from "@core/errors";
 import type { RenderFrame } from "@core/render";
 import type { Script } from "@core/script";
 import type { VideoDir } from "@core/workdir";
@@ -47,6 +51,58 @@ export interface RenderCardsOptions {
 /** Stable frame file name (BR-U4-10): card-<seg 2 位>-<page>.png. */
 export function frameFileName(segmentIndex: number, pageIndex: number): string {
   return `card-${String(segmentIndex).padStart(2, "0")}-${pageIndex}.png`;
+}
+
+/**
+ * Resolves a segment's backgroundImage to an absolute path: 绝对路径原样
+ * 通过；相对路径按 `<workdir>/input/images/` 解析（schema 契约，
+ * script/types.ts Segment.backgroundImage）.
+ */
+export function resolveBackgroundImagePath(raw: string, dir: VideoDir): string {
+  return isAbsolute(raw) ? raw : join(dir.paths.input, "images", raw);
+}
+
+/** backgroundImage 扩展名 → data URI mime（扩展名域已由 validateScript 限定）. */
+function mimeFromExtension(path: string): string {
+  return path.toLowerCase().endsWith(".png") ? "image/png" : "image/jpeg";
+}
+
+/**
+ * Loads a (resolved, absolute) background image as a base64 data URI,
+ * cached by path — 同一照片被多段引用时只读一次文件.
+ *
+ * @throws NotFoundError when the file does not exist (message lists the
+ *         expected images directory so the fix is actionable).
+ * @throws IoError when the file exists but cannot be read.
+ */
+async function loadBackgroundImageDataUri(
+  resolved: string,
+  raw: string,
+  segmentIndex: number,
+  dir: VideoDir,
+  cache: Map<string, string>,
+): Promise<string> {
+  const cached = cache.get(resolved);
+  if (cached !== undefined) return cached;
+
+  if (!existsSync(resolved)) {
+    throw new NotFoundError(
+      `段 ${segmentIndex} 背景图不存在: ${resolved}` +
+        `（backgroundImage "${raw}"；相对路径请把图片放进 ` +
+        `${join(dir.paths.input, "images")}，或改用绝对路径）`,
+    );
+  }
+  let bytes: Buffer;
+  try {
+    bytes = await readFile(resolved);
+  } catch (cause) {
+    throw new IoError(`段 ${segmentIndex} 背景图读取失败: ${resolved}`, {
+      cause,
+    });
+  }
+  const dataUri = `data:${mimeFromExtension(resolved)};base64,${bytes.toString("base64")}`;
+  cache.set(resolved, dataUri);
+  return dataUri;
 }
 
 /** Code-point count of one subtitle page (its lines joined). */
@@ -110,10 +166,18 @@ export function allocatePageDurations(
  * every run so a re-run with fresh durations updates frames.json even when
  * every PNG is skipped.
  *
+ * 背景照片：segment.backgroundImage 在此解析为绝对路径（相对 →
+ * input/images/），并在该段确有页面需要渲染时读文件 + base64 一次
+ * （按路径缓存），经 layout.backgroundImageDataUri 送入 buildCardSvg——
+ * SVG 生成保持纯函数（BR-U4-8）。全部页面已存在（幂等跳过）时不读照片，
+ * 见模块头的幂等提醒。
+ *
  * @param segmentDurations durations.json 实测逐段秒数（BR-U4-6 — 禁用估算值）.
  * @throws ValidationError on segment/duration mismatch or non-positive durations.
+ * @throws NotFoundError when a segment's background image file is missing.
  * @throws RenderError from rasterization or the BR-U4-5 invariant.
- * @throws IoError when frames.json cannot be written.
+ * @throws IoError when frames.json cannot be written or a background image
+ *         cannot be read.
  */
 export async function renderCards(
   script: Script,
@@ -144,8 +208,15 @@ export async function renderCards(
   }
 
   const frames: RenderFrame[] = [];
+  const backgroundDataUriCache = new Map<string, string>();
   for (const [i, segment] of script.segments.entries()) {
     const layout = layoutCard(segment, segment.text, template);
+    if (layout.backgroundImage !== undefined) {
+      layout.backgroundImage = resolveBackgroundImagePath(
+        layout.backgroundImage,
+        dir,
+      );
+    }
     const pageDurations = allocatePageDurations(
       layout,
       segmentDurations[i]!,
@@ -155,6 +226,19 @@ export async function renderCards(
     for (let p = 0; p < layout.subtitlePages.length; p++) {
       const path = join(cardsDir, frameFileName(i, p));
       if (!existsSync(path)) {
+        // 惰性读照片：该段首个需渲染的页面触发一次（跨段按路径缓存）。
+        if (
+          layout.backgroundImage !== undefined &&
+          layout.backgroundImageDataUri === undefined
+        ) {
+          layout.backgroundImageDataUri = await loadBackgroundImageDataUri(
+            layout.backgroundImage,
+            segment.backgroundImage!,
+            i,
+            dir,
+            backgroundDataUriCache,
+          );
+        }
         const svg = buildCardSvg(layout, p, template);
         await rasterizeFn(svg, path);
       }

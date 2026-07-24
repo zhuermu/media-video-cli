@@ -26,7 +26,7 @@ export interface Script {
   source: { kind: "article" | "topic"; ref: string };
 }
 
-/** One narration segment (locked fields). */
+/** One narration segment (locked fields + additive backgroundImage). */
 export interface Segment {
   /** 口播文字（TTS 输入）. */
   text: string;
@@ -34,6 +34,14 @@ export interface Segment {
   cardText: string;
   /** 卡片高亮词（模板可用）；每项必须是 cardText 的子串（BR-U3-10）. */
   emphasis?: string[];
+  /**
+   * 可选背景照片（additive）：卡片渲染为照片满幅（cover-fit 1080×1920）
+   * + 深色遮罩 + 原有文字层。相对路径按视频工作目录的 input/images/
+   * 解析；绝对路径原样使用。schema 校验只查扩展名（.jpg/.jpeg/.png，
+   * validateScript 无 workdir 上下文）；文件存在性在渲染期（frames.ts）
+   * 检查。
+   */
+  backgroundImage?: string;
 }
 
 /** Duration estimate (locked fields). Preview-only — see BR-U3-8. */
@@ -63,6 +71,8 @@ export const SCRIPT_CONSTRAINTS = {
   textMaxChars: 300,
   /** 卡片文案上限（卡片容量约束）. */
   cardTextMaxChars: 80,
+  /** backgroundImage 允许的扩展名（大小写不敏感；存在性渲染期才查）. */
+  backgroundImageExtensions: [".jpg", ".jpeg", ".png"],
 } as const;
 
 /** Speech-rate parameters for {@link DurationEstimate} (Q2=A 可配置). */

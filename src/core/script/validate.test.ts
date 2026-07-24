@@ -147,6 +147,31 @@ describe("validateScript", () => {
     );
   });
 
+  test("backgroundImage: .jpg/.jpeg/.png（大小写不敏感）通过并保留", async () => {
+    const base = validScript();
+    base.segments[0]!.backgroundImage = "sunset.jpg";
+    base.segments[1]!.backgroundImage = "/abs/path/city.PNG";
+    base.segments[2]!.backgroundImage = "photo.jpeg";
+    const script = await validateScript(await write(base));
+    expect(script.segments[0]!.backgroundImage).toBe("sunset.jpg");
+    expect(script.segments[1]!.backgroundImage).toBe("/abs/path/city.PNG");
+    expect(script.segments[2]!.backgroundImage).toBe("photo.jpeg");
+    // 未设置的段不长出该字段（additive，不污染原有形状）。
+    const plain = await validateScript(await write(validScript()));
+    expect("backgroundImage" in plain.segments[0]!).toBe(false);
+  });
+
+  test("backgroundImage: 非法扩展名与空串被拒（存在性不在此查）", async () => {
+    const base = validScript();
+    base.segments[0]!.backgroundImage = "photo.gif";
+    base.segments[1]!.backgroundImage = "  ";
+    const message = await expectViolations(await write(base));
+    expect(message).toContain(
+      'segments[0].backgroundImage: "photo.gif" 扩展名不支持',
+    );
+    expect(message).toContain("segments[1].backgroundImage: 必须为非空字符串");
+  });
+
   test("topic >500 chars is truncated to 500 with a warning, not rejected (BR-U3-5)", async () => {
     const warnings: string[] = [];
     const script = await validateScript(

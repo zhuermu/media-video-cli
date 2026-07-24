@@ -18,7 +18,7 @@ import { fileURLToPath } from "node:url";
 
 import { IoError, ValidationError } from "@core/errors";
 
-import { CANVAS } from "./types";
+import { CANVAS, MAX_OVERLAY_OPACITY } from "./types";
 import type { CardTemplate } from "./types";
 
 /** Shipped default template asset (version-controlled, BR-U4 模板定义). */
@@ -130,6 +130,36 @@ export function validateTemplate(raw: unknown): TemplateLoadResult {
   );
   const maxLines = requirePositiveNumber(raw, "maxLines", problems);
 
+  // 可选遮罩字段（additive，仅在出现时校验）。opacity 超上限是结构错误
+  // （问题清单），不是 BR-U4-11 类警告。
+  let overlayColor: string | undefined;
+  if (raw["overlayColor"] !== undefined) {
+    const value = raw["overlayColor"];
+    if (typeof value !== "string" || !HEX_COLOR.test(value)) {
+      problems.push(
+        `overlayColor: 必须是 #rrggbb 十六进制值（得到 ${JSON.stringify(value)}）`,
+      );
+    } else {
+      overlayColor = value;
+    }
+  }
+  let overlayOpacity: number | undefined;
+  if (raw["overlayOpacity"] !== undefined) {
+    const value = raw["overlayOpacity"];
+    if (
+      typeof value !== "number" ||
+      !Number.isFinite(value) ||
+      value < 0 ||
+      value > MAX_OVERLAY_OPACITY
+    ) {
+      problems.push(
+        `overlayOpacity: 必须是 [0, ${MAX_OVERLAY_OPACITY}] 内的数字（得到 ${JSON.stringify(value)}）`,
+      );
+    } else {
+      overlayOpacity = value;
+    }
+  }
+
   let safeArea = { top: 0, bottom: 0, left: 0, right: 0 };
   const rawSafeArea = raw["safeArea"];
   if (!isRecord(rawSafeArea)) {
@@ -185,8 +215,15 @@ export function validateTemplate(raw: unknown): TemplateLoadResult {
     maxCharsPerLine,
     maxLines,
   };
+  if (overlayColor !== undefined) template.overlayColor = overlayColor;
+  if (overlayOpacity !== undefined) template.overlayOpacity = overlayOpacity;
 
   // BR-U4-11 findings are WARNINGS — reported, never thrown.
+  //
+  // 背景照片对比度备注（警告路径备注，无硬校验）：默认 0.55 黑色遮罩叠加
+  // 在任意照片上无法数学上保证 WCAG 4.5:1 —— 照片亮区经遮罩后仍可能与白色
+  // 前景对比不足。逐像素校验超出模板载入的职责（照片渲染期才可得），故
+  // 沿用 BR-U4-11 的精神：不阻塞，由人工审核卡片成片把关。
   const warnings: string[] = [];
   if (bodySize < MIN_BODY_SIZE) {
     warnings.push(

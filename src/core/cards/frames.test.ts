@@ -189,3 +189,108 @@ describe("rasterize（唯一真实 resvg 烟雾用例）", () => {
     );
   });
 });
+
+import { mkdirSync, writeFileSync } from "node:fs";
+import { resolveBackgroundImagePath } from "./frames";
+
+/** 1×1 红色 PNG（预生成字节，测试夹具，<100B）. */
+const TINY_PNG = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGP4z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+describe("renderCards 背景图（image-background cards）", () => {
+  /** 单段脚本，段 0 带相对路径背景图. */
+  function bgScript(backgroundImage: string): Script {
+    return {
+      title: "测试",
+      topic: "测试",
+      segments: [
+        { text: "本期讲三个要点", cardText: "要点一", backgroundImage },
+      ],
+      source: { kind: "topic", ref: "测试" },
+    };
+  }
+
+  test("resolveBackgroundImagePath: 相对路径 → input/images/，绝对路径原样通过", () => {
+    const dir = fakeDir(root);
+    expect(resolveBackgroundImagePath("bg.jpg", dir)).toBe(
+      join(dir.paths.input, "images", "bg.jpg"),
+    );
+    expect(resolveBackgroundImagePath("/abs/path/bg.png", dir)).toBe(
+      "/abs/path/bg.png",
+    );
+  });
+
+  test("背景图缺失 → NotFoundError，消息含 input/images 指引", async () => {
+    const dir = fakeDir(root);
+    await expect(
+      renderCards(bgScript("missing.jpg"), [4], template, dir, {
+        rasterizeFn: fakeRasterizer().fn,
+      }),
+    ).rejects.toThrow(/input\/images|input\\images/);
+  });
+
+  test("背景图就位 → SVG 含 <image> data URI + 遮罩 rect；同图多段只读一次（缓存）", async () => {
+    const dir = fakeDir(root);
+    const imagesDir = join(dir.paths.input, "images");
+    mkdirSync(imagesDir, { recursive: true });
+    writeFileSync(join(imagesDir, "bg.png"), TINY_PNG);
+
+    // 两段引用同一张图（缓存路径覆盖）。
+    const script2: Script = {
+      title: "测试",
+      topic: "测试",
+      segments: [
+        { text: "第一段要点", cardText: "要点一", backgroundImage: "bg.png" },
+        { text: "第二段要点", cardText: "要点二", backgroundImage: "bg.png" },
+      ],
+      source: { kind: "topic", ref: "测试" },
+    };
+    const captured: string[] = [];
+    const frames = await renderCards(script2, [4, 5], template, dir, {
+      rasterizeFn: async (svg, outPath) => {
+        captured.push(svg);
+        await Bun.write(outPath, "stub");
+        return { path: outPath, width: 1080, height: 1920 };
+      },
+    });
+
+    expect(frames).toHaveLength(2);
+    const expectedUri = `data:image/png;base64,${TINY_PNG.toString("base64")}`;
+    for (const svg of captured) {
+      expect(svg).toContain(`<image href="${expectedUri}"`);
+      expect(svg).toContain('preserveAspectRatio="xMidYMid slice"');
+      expect(svg).toContain('fill-opacity="0.55"');
+      expect(svg).toContain("要点"); // 文字层仍在遮罩之上
+    }
+    // 两段 SVG 的 data URI 完全一致 —— 第二段命中缓存路径。
+    expect(captured[0]).toContain(expectedUri);
+    expect(captured[1]).toContain(expectedUri);
+  });
+
+  test("无背景图段的 SVG 不含 <image>（回归守护）", async () => {
+    const dir = fakeDir(root);
+    const captured: string[] = [];
+    await renderCards(
+      {
+        title: "测试",
+        topic: "测试",
+        segments: [{ text: "普通段落", cardText: "要点" }],
+        source: { kind: "topic", ref: "测试" },
+      },
+      [4],
+      template,
+      dir,
+      {
+        rasterizeFn: async (svg, outPath) => {
+          captured.push(svg);
+          await Bun.write(outPath, "stub");
+          return { path: outPath, width: 1080, height: 1920 };
+        },
+      },
+    );
+    expect(captured[0]).not.toContain("<image");
+    expect(captured[0]).not.toContain("fill-opacity");
+  });
+});

@@ -111,6 +111,8 @@ function findCodePoints(haystack: string[], needle: string[]): number {
  *    (每段至少一帧 invariant).
  * 4. emphasis 定位: first occurrence per term located in titleLines;
  *    cross-line spans yield one range per line; absent terms are skipped.
+ * 5. backgroundImage 透传: segment 原值原样进 layout（相对/绝对路径的
+ *    解析与文件读取在 frames.ts — 那里才有 VideoDir）.
  *
  * @throws ValidationError when cardText exceeds the template capacity.
  */
@@ -180,5 +182,11 @@ export function layoutCard(
     if (currentRange !== undefined) emphasisRanges.push(currentRange);
   }
 
-  return { titleLines, subtitlePages, emphasisRanges };
+  // 5. Background photo passthrough（原值透传，保持纯函数：解析为绝对
+  //    路径需要 VideoDir 上下文，发生在 frames.ts）.
+  const layout: CardLayout = { titleLines, subtitlePages, emphasisRanges };
+  if (segment.backgroundImage !== undefined) {
+    layout.backgroundImage = segment.backgroundImage;
+  }
+  return layout;
 }

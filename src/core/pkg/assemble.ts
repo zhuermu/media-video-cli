@@ -15,7 +15,8 @@
  * - BR-U5-5 (Q1=A): a user-specified cover must be >= 720px wide and is
  *   converted to jpg; the default cover is the first card PNG.
  * - BR-U5-3 (C12): materials-manifest gains pkg-side auto entries (TTS
- *   backend + voice, card template name, FFmpeg version).
+ *   backend + voice, card template name, FFmpeg version, plus 全脚本
+ *   backgroundImage 去重后的背景图文件名 — 图片来源可追溯).
  *
  * Injectable seams (offline tests): probeFn, runFn (cover conversion),
  * captureFn (ffmpeg -version), provenance overrides.
@@ -30,7 +31,7 @@ import {
   rm,
   writeFile,
 } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 
 import type { MediaInfo } from "@adapters/ffmpeg";
 import { probe, runCaptureStdout, runFfmpeg } from "@adapters/ffmpeg";
@@ -214,6 +215,7 @@ export async function assemble(
     captureFn,
     ffmpegPath,
   );
+  const backgroundEntries = await backgroundImageEntries(dir);
 
   // ---- Steps 4-6: build inside package.tmp, then atomic swap (BR-U5-4) ----
   const pkgPath = dir.paths.pkg;
@@ -246,7 +248,8 @@ export async function assemble(
       `## pkg 组装自动条目（C12 素材可追溯）\n\n` +
       `- TTS: ${provenance.ttsBackend}（音色: ${provenance.ttsVoice}）\n` +
       `- 卡片模板: ${provenance.cardTemplate}\n` +
-      `- FFmpeg: ${provenance.ffmpegVersion}\n`;
+      `- FFmpeg: ${provenance.ffmpegVersion}\n` +
+      backgroundEntries.map((entry) => `${entry}\n`).join("");
     await writeFile(
       join(tmpPath, PKG_FILES.materialsManifest),
       materialsContent,
@@ -337,6 +340,41 @@ function firstCardPng(dir: VideoDir): string {
     );
   }
   return join(dir.paths.cards, cards[0]!);
+}
+
+/**
+ * Background-image auto entries from script.json segments (BR-U5-3 / C12
+ * 图片来源可追溯): 每个被使用的**去重后**背景图产出一条
+ * `- 背景图: <文件名>（用户提供素材，来源与授权由用户自行负责）`.
+ * Best-effort read（与 provenance 的 env/默认值兜底同一姿态）：script.json
+ * 缺失或损坏时返回空——正常流水线在 script 步已做 schema 校验，追溯条目
+ * 不在 pkg 层重复报错。
+ */
+async function backgroundImageEntries(dir: VideoDir): Promise<string[]> {
+  const scriptPath = join(dir.paths.script, "script.json");
+  if (!existsSync(scriptPath)) return [];
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(await readFile(scriptPath, "utf8"));
+  } catch {
+    return [];
+  }
+  if (typeof raw !== "object" || raw === null) return [];
+  const segments = (raw as Record<string, unknown>)["segments"];
+  if (!Array.isArray(segments)) return [];
+
+  const distinct = new Set<string>();
+  for (const segment of segments) {
+    if (typeof segment !== "object" || segment === null) continue;
+    const bg = (segment as Record<string, unknown>)["backgroundImage"];
+    if (typeof bg === "string" && bg.trim().length > 0) {
+      distinct.add(basename(bg.trim()));
+    }
+  }
+  return [...distinct].map(
+    (name) => `- 背景图: ${name}（用户提供素材，来源与授权由用户自行负责）`,
+  );
 }
 
 /** Fills provenance gaps from env/defaults; captures ffmpeg -version once. */

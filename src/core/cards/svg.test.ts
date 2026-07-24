@@ -96,7 +96,9 @@ describe("buildCardSvg (Workflow 2)", () => {
     const overlayAt = svg.indexOf('fill-opacity="0.55"');
     const imageAt = svg.indexOf("<image ");
     const titleAt = svg.indexOf("带图要点");
-    expect(imageAt).toBeGreaterThan(svg.indexOf(`fill="${template.background}"`));
+    expect(imageAt).toBeGreaterThan(
+      svg.indexOf(`fill="${template.background}"`),
+    );
     expect(overlayAt).toBeGreaterThan(imageAt);
     expect(titleAt).toBeGreaterThan(overlayAt);
     // 纯函数确定性（BR-U4-8）：同输入逐字符相等。
@@ -113,7 +115,11 @@ describe("buildCardSvg (Workflow 2)", () => {
   });
 
   test("无背景照片: 输出不含 <image>/遮罩（回归锚点）", () => {
-    const svg = buildCardSvg(layout({ subtitlePages: [["字幕"]] }), 0, template);
+    const svg = buildCardSvg(
+      layout({ subtitlePages: [["字幕"]] }),
+      0,
+      template,
+    );
     expect(svg).not.toContain("<image");
     expect(svg).not.toContain("fill-opacity");
   });

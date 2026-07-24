@@ -26,7 +26,12 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { isAbsolute, join } from "node:path";
 
-import { IoError, NotFoundError, RenderError, ValidationError } from "@core/errors";
+import {
+  IoError,
+  NotFoundError,
+  RenderError,
+  ValidationError,
+} from "@core/errors";
 import type { RenderFrame } from "@core/render";
 import type { Script } from "@core/script";
 import type { VideoDir } from "@core/workdir";

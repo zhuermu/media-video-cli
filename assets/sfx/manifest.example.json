@@ -1,0 +1,23 @@
+{
+  "_readme": [
+    "音效清单契约（复制为 manifest.json 生效；没有 manifest.json = 纯口播，不报错）。",
+    "音效文件从免版税库人工挑选下载放到本目录，每条必须填 source（库名+条目链接）",
+    "和 license（如 CC0 / Pixabay License）——C12 红线：素材逐条可追溯。",
+    "id 只支持 writing（书写沙沙声，会循环铺在笔书写区间）和 whoosh（转场，打在每次运镜起点）。",
+    "BGM 不入库：发布时在平台官方曲库人工配（Q6=C 裁定）。"
+  ],
+  "entries": [
+    {
+      "id": "writing",
+      "file": "writing-pencil.wav",
+      "source": "Pixabay: https://pixabay.com/sound-effects/xxxx/",
+      "license": "Pixabay Content License"
+    },
+    {
+      "id": "whoosh",
+      "file": "whoosh-soft.wav",
+      "source": "freesound: https://freesound.org/people/xxx/sounds/xxxx/",
+      "license": "CC0"
+    }
+  ]
+}

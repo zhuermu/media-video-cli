@@ -1,0 +1,65 @@
+{
+  "_readme": [
+    "音效清单（C12 素材可追溯）。id 为 writing / whoosh 的条目是引擎挂钩：",
+    "writing 循环铺在笔书写区间，whoosh 打在每次运镜起点；其余为库存素材，",
+    "供后续能力（元素入场 pop、对勾 ding、翻页转场等）使用。",
+    "全部来自 Mixkit，许可证为 Mixkit Sound Effects Free License（可商用、免署名、",
+    "不可原样转售素材本体）：https://mixkit.co/license/#sfxFree"
+  ],
+  "entries": [
+    {
+      "id": "writing",
+      "file": "writing-pencil.mp3",
+      "source": "Mixkit「Explainer video writing pencil letters」https://mixkit.co/free-sound-effects/write/（asset 3011）",
+      "license": "Mixkit Sound Effects Free License"
+    },
+    {
+      "id": "whoosh",
+      "file": "whoosh-air.mp3",
+      "source": "Mixkit「Air woosh」https://mixkit.co/free-sound-effects/whoosh/（asset 1489）",
+      "license": "Mixkit Sound Effects Free License"
+    },
+    {
+      "id": "writing-alt-blackboard",
+      "file": "writing-blackboard.mp3",
+      "source": "Mixkit「Writing on blackboard」https://mixkit.co/free-sound-effects/write/（asset 2366）",
+      "license": "Mixkit Sound Effects Free License"
+    },
+    {
+      "id": "pop",
+      "file": "pop-long.mp3",
+      "source": "Mixkit「Long pop」https://mixkit.co/free-sound-effects/pop/（asset 2358）",
+      "license": "Mixkit Sound Effects Free License"
+    },
+    {
+      "id": "ding",
+      "file": "ding-correct.mp3",
+      "source": "Mixkit「Correct answer tone」https://mixkit.co/free-sound-effects/notification/（asset 2870）",
+      "license": "Mixkit Sound Effects Free License"
+    },
+    {
+      "id": "bell",
+      "file": "bell-notification.mp3",
+      "source": "Mixkit「Bell notification」https://mixkit.co/free-sound-effects/notification/（asset 933）",
+      "license": "Mixkit Sound Effects Free License"
+    },
+    {
+      "id": "page-turn",
+      "file": "page-turn.mp3",
+      "source": "Mixkit「Page turn single」https://mixkit.co/free-sound-effects/page-turn/（asset 1104）",
+      "license": "Mixkit Sound Effects Free License"
+    },
+    {
+      "id": "click",
+      "file": "click-interface.mp3",
+      "source": "Mixkit「Cool interface click tone」https://mixkit.co/free-sound-effects/click/（asset 2568）",
+      "license": "Mixkit Sound Effects Free License"
+    },
+    {
+      "id": "sparkle",
+      "file": "sparkle-whoosh.mp3",
+      "source": "Mixkit「Magic sparkle whoosh」https://mixkit.co/free-sound-effects/whoosh/（asset 2350）",
+      "license": "Mixkit Sound Effects Free License"
+    }
+  ]
+}

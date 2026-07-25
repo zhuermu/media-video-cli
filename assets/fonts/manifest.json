@@ -1,0 +1,15 @@
+{
+  "_readme": [
+    "手写字体清单（C12 素材可追溯）。字体二进制不入 git（.gitignore），",
+    "按 source 重新下载放回本目录即可；缺字体时白板渲染自动回退楷体笔画轮廓。",
+    "白板渲染取本目录字典序第一个可解析的 .ttf/.otf。"
+  ],
+  "entries": [
+    {
+      "file": "LXGWWenKai-Regular.ttf",
+      "name": "LXGW WenKai（霞鹜文楷）",
+      "source": "https://github.com/lxgw/LxgwWenKai（经 cdn.jsdelivr.net/gh/lxgw/LxgwWenKai@latest/fonts/TTF/ 下载）",
+      "license": "SIL Open Font License 1.1"
+    }
+  ]
+}

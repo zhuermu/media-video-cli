@@ -170,6 +170,38 @@ export const ROUTES: RouteSpec[] = [
     usage: "vagent check",
     summary: "门禁: prettier --check + bun test 串行汇总（BR-U6-9）",
   },
+  {
+    route: "whiteboard render",
+    tokens: ["whiteboard", "render"],
+    positionals: ["article.md"],
+    options: {
+      kind: { type: "string" },
+      out: { type: "string" },
+      frames: { type: "string" },
+      stills: { type: "string" },
+      cache: { type: "string" },
+      tag: { type: "string" },
+      persona: { type: "string" },
+      assets: { type: "string" },
+      arm: { type: "string" },
+      "only-stills": { type: "boolean" },
+      fresh: { type: "boolean" },
+      "no-burn": { type: "boolean" },
+    },
+    required: [],
+    usage:
+      "vagent whiteboard render <article.md> [--kind short|long|auto] " +
+      "[--only-stills] [--fresh] [--no-burn] [--persona <名>] " +
+      "[--arm cuff|extend] " +
+      "[--assets <素材根>] [--out <目录>] [--frames <目录>] " +
+      "[--stills <目录>] [--cache <目录>] [--tag <前缀>]",
+    summary:
+      "Markdown → 白板讲解视频（配音 + 手写板书 + 手势 + 字幕）；" +
+      "体裁默认按实测配音总时长自动判定",
+    stopHint:
+      "整片渲染约 1 小时：先用 --only-stills 出关键帧目视复核版式，再渲整片" +
+      "（默认续跑，改过文章或版式必须加 --fresh）",
+  },
 ];
 
 /** Global flags merged into every command's parseArgs options (BR-U6-2). */

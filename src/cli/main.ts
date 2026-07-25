@@ -27,6 +27,7 @@ import { runRegisterAdd } from "./commands/register";
 import { runReportBaseline, runReportWeekly } from "./commands/report";
 import { runScriptValidate } from "./commands/script";
 import { runTtsRun } from "./commands/tts";
+import { runWhiteboardRender } from "./commands/whiteboard";
 
 /** Narrows a parsed flag value to string | undefined. */
 function str(
@@ -92,6 +93,22 @@ async function dispatch(cmd: ParsedCommand): Promise<CommandResult> {
       return runReportBaseline();
     case "check":
       return runCheckCommand();
+    case "whiteboard render":
+      return runWhiteboardRender({
+        article: slug,
+        kind: str(v, "kind"),
+        out: str(v, "out"),
+        frames: str(v, "frames"),
+        stills: str(v, "stills"),
+        cache: str(v, "cache"),
+        tag: str(v, "tag"),
+        persona: str(v, "persona"),
+        assets: str(v, "assets"),
+        arm: str(v, "arm"),
+        onlyStills: v["only-stills"] === true,
+        fresh: v["fresh"] === true,
+        noBurn: v["no-burn"] === true,
+      });
     default:
       // Unreachable: parseCli only returns routes from the table.
       throw new Error(`路由未实现: ${cmd.route}`);

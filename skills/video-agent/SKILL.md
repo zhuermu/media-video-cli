@@ -1,6 +1,6 @@
 ---
 name: video-agent
-description: 半自动短视频制作技能。当用户说「做条视频」「文章转视频」「主题做视频」，或想把一篇 Markdown 文章 / 一个主题制作成竖版口播卡片视频并准备发布包时使用。编排 vagent CLI 全流程（init → script → tts → compose → package → register），含两处人工审核停点；绝不自动发布。
+description: 半自动短视频制作技能。当用户说「做条视频」「文章转视频」「主题做视频」，或想把一篇 Markdown / Html 文章 / 一个主题制作成竖版口播卡片视频并准备发布包时使用。编排 vagent CLI 全流程（init → script → tts → compose → package → register），含两处人工审核停点；绝不自动发布。
 ---
 
 # video-agent — 文章/主题 → 竖版口播卡片视频（半自动流水线）
@@ -71,6 +71,56 @@ vagent init <slug> --article <path.md>    # 或 --topic "<主题文字>"
 
 写作要求：总时长目标 60-180s（约 4.5 字/秒估算，即全文口播 270-810 字为宜）；cardText
 是屏幕大字要点，短句、可扫读；emphasis 从 cardText 里挑 1-2 个原样子串。
+
+#### 白板手绘动画风格（可选，`style: "whiteboard"`）
+
+知识类视频的主打形态：一支笔在白板上按真笔顺写字、描图表、拉入图片，段间运镜，
+收尾 zoom-out 全览。启用方式：script.json 根级加 `"style": "whiteboard"`（可选
+`"theme": "clean"|"ocean"|"forest"`），且**每段**必须带 `scene`：
+
+```json
+{
+  "style": "whiteboard",
+  "theme": "clean",
+  "segments": [
+    {
+      "text": "口播文字……",
+      "cardText": "要点",
+      "scene": {
+        "elements": [
+          { "type": "title", "text": "开场标题", "underline": true },
+          { "type": "text", "text": "补充一句" }
+        ]
+      }
+    }
+  ]
+}
+```
+
+场景元素表（每段 1-6 个元素，竖排自动版式，语义声明零坐标）：
+
+| type      | 字段                                             | 约束                                    |
+| --------- | ------------------------------------------------ | --------------------------------------- |
+| `title`   | `text`（≤12 字）, `underline?`                   | 大字手写 + 可选强调下划线               |
+| `text`    | `text`（≤18 字）                                 | 正文手写行                              |
+| `bullet`  | `text`（≤18 字）                                 | 对勾 + 手写要点行                       |
+| `icon`    | `name`, `accent?`, `label?`（≤10 字）            | 线稿图标笔描（可用名见下）              |
+| `chart`   | `chart: "bars-up"\|"line-up"\|"steps"`, `label?` | 图表笔描 + 填色淡入                     |
+| `image`   | `src`(.jpg/.jpeg/.png), `circle?`, `label?`      | 照片拉入（路径同 backgroundImage 约定） |
+| `sticker` | `name`（可用名见下）                             | 色块装饰件（淡入，不占版式）            |
+
+icon 可用名：`arrow-right` `arrow-swoosh` `circle` `check` `cross` `star`
+`burst` `wave` `lightbulb` `box` `speech-bubble` `cloud` `magnifier` `heart`
+`target` `rocket` `trophy` `thumbs-up` `crown` `fire` `sparkles` `flag` `pin`。
+sticker 可用名：`blob` `tape` `star-badge` `confetti` `highlight`。
+
+写作建议：每段 2-3 个元素为宜（口播 15-25 秒才撑得起 4 个以上）；开场段用
+title，图表/图标段配 label；全片至多 1-2 个 sticker 点缀。
+
+音效（可选）：`assets/sfx/manifest.json` 里登记了免版税音效（书写沙沙声/whoosh，
+逐条 source+license）时，compose 自动在笔书写区间与运镜处低音量混入；没有该文件
+则纯口播，不报错。**入库的每条音效必须可追溯授权**（C12 红线），下载来源与许可证
+写全再入库。
 
 ```bash
 vagent script validate <slug>

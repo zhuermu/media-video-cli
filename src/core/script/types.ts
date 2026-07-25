@@ -14,7 +14,12 @@
  *   ffprobe-measured durations.json.
  */
 
-/** Script root (locked fields, FR-1.3 的结构化落地). */
+import type { WhiteboardScene } from "@core/whiteboard/types";
+
+/** 渲染风格（additive）：缺省 "cards" = 既有静态卡片路径. */
+export type ScriptStyle = "cards" | "whiteboard";
+
+/** Script root (locked fields + additive style/theme, FR-1.3 的结构化落地). */
 export interface Script {
   /** 视频工作标题. */
   title: string;
@@ -24,6 +29,13 @@ export interface Script {
   segments: Segment[];
   /** 素材来源追溯. */
   source: { kind: "article" | "topic"; ref: string };
+  /**
+   * 渲染风格（additive）：缺省 "cards"。"whiteboard" 时每段必须带
+   * scene（白板场景描述），compose 走白板手绘动画渲染路径。
+   */
+  style?: ScriptStyle;
+  /** 白板主题名（additive；THEMES 表键，缺省 "clean"）. */
+  theme?: string;
 }
 
 /** One narration segment (locked fields + additive backgroundImage). */
@@ -42,6 +54,13 @@ export interface Segment {
    * 检查。
    */
   backgroundImage?: string;
+  /**
+   * 白板场景描述（additive；style="whiteboard" 时必填）：语义化声明
+   * 本段要画什么（标题/文本/图标/图表/图片/装饰件），坐标由白板自动
+   * 版式决定。image.src 路径约定同 backgroundImage（相对 →
+   * input/images/；存在性 compose 期检查）。
+   */
+  scene?: WhiteboardScene;
 }
 
 /** Duration estimate (locked fields). Preview-only — see BR-U3-8. */
@@ -73,6 +92,12 @@ export const SCRIPT_CONSTRAINTS = {
   cardTextMaxChars: 80,
   /** backgroundImage 允许的扩展名（大小写不敏感；存在性渲染期才查）. */
   backgroundImageExtensions: [".jpg", ".jpeg", ".png"],
+  /** 白板场景：title 手写单行上限（版式容量）. */
+  sceneTitleMaxChars: 12,
+  /** 白板场景：text/bullet 手写单行上限. */
+  sceneTextMaxChars: 18,
+  /** 白板场景：icon/chart/image 标注上限. */
+  sceneLabelMaxChars: 10,
 } as const;
 
 /** Speech-rate parameters for {@link DurationEstimate} (Q2=A 可配置). */

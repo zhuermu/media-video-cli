@@ -16,6 +16,8 @@
   },
   "dependencies": {
     "@resvg/resvg-js": "2.6.2",
-    "msedge-tts": "2.0.7"
+    "hanzi-writer-data": "2.0.1",
+    "msedge-tts": "2.0.7",
+    "opentype.js": "1.3.4"
   }
 }

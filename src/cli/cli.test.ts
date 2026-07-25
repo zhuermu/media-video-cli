@@ -417,6 +417,142 @@ describe("compose run command", () => {
       expect((error as Error).message).toContain("script 未完成");
     }
   });
+
+  test("whiteboard 路径: scene DSL → 白板帧序列 → RenderJob（seam 后端）", async () => {
+    const { markStep } = await import("@core/workdir");
+    const { MERGED_FILE, segmentFileName } = await import("@core/tts");
+    const videosRoot = makeTempRoot("cli-compose-wb-");
+    const slug = "wb-video";
+    await runInit({ slug, topic: "白板动画介绍", videosRoot });
+    const dir = await load(slug, { videosRoot });
+
+    // whiteboard 风格 script.json（3 段，覆盖 title/chart/icon 元素）
+    writeFileSync(
+      join(dir.paths.script, "script.json"),
+      JSON.stringify({
+        title: "白板动画",
+        topic: "白板手绘动画介绍",
+        style: "whiteboard",
+        theme: "ocean",
+        segments: [
+          {
+            text: "第一段口播。",
+            cardText: "开场",
+            scene: { elements: [{ type: "title", text: "白板动画" }] },
+          },
+          {
+            text: "第二段口播。",
+            cardText: "增长",
+            scene: {
+              elements: [{ type: "chart", chart: "bars-up", label: "增长" }],
+            },
+          },
+          {
+            text: "第三段口播。",
+            cardText: "要点",
+            scene: {
+              elements: [{ type: "icon", name: "check", accent: true }],
+            },
+          },
+        ],
+        source: { kind: "topic", ref: "白板动画" },
+      }),
+    );
+    await runScriptValidate({ slug, videosRoot });
+
+    // 模拟 tts 产物（stepDone 查存在性；durations.json 供实测时长）
+    const perSegment = [3.2, 3.0, 2.8];
+    for (let i = 0; i < 3; i++) {
+      writeFileSync(join(dir.paths.audio, segmentFileName(i)), "mp3-stub");
+    }
+    writeFileSync(join(dir.paths.audio, MERGED_FILE), "m4a-stub");
+    writeFileSync(
+      join(dir.paths.audio, "durations.json"),
+      JSON.stringify({ perSegment, total: 9 }),
+    );
+    const dirTts = await load(slug, { videosRoot });
+    await markStep(dirTts, "tts", { backend: "stub", segments: 3 });
+
+    // 音效清单（临时目录内 stub wav + 授权字段），混音经 seam 捕获
+    const sfxDir = join(videosRoot, "sfx");
+    mkdirSync(sfxDir, { recursive: true });
+    writeFileSync(join(sfxDir, "w.wav"), "wav-stub");
+    writeFileSync(join(sfxDir, "x.wav"), "wav-stub");
+    const sfxManifestPath = join(sfxDir, "manifest.json");
+    writeFileSync(
+      sfxManifestPath,
+      JSON.stringify({
+        entries: [
+          { id: "writing", file: "w.wav", source: "pixabay#w", license: "CC0" },
+          { id: "whoosh", file: "x.wav", source: "pixabay#x", license: "CC0" },
+        ],
+      }),
+    );
+    let mixArgv: string[] | undefined;
+
+    // seams: 假后端捕获 RenderJob；假栅格化写 stub PNG；假 config 跳过探测
+    let captured: import("@core/render").RenderJob | undefined;
+    const backend = {
+      compose: async (job: import("@core/render").RenderJob) => {
+        captured = job;
+        return {
+          path: job.output.path,
+          durationSec: 9,
+          probe: {
+            width: 1080,
+            height: 1920,
+            durationSec: 9,
+            videoStreams: 1,
+            audioStreams: 1,
+          },
+        };
+      },
+    };
+    const result = await runComposeRun(
+      { slug, videosRoot },
+      {
+        config: {
+          ttsBackend: "say",
+          ttsVoice: "T",
+          cardTemplate: "default",
+          videosRoot,
+          dataRoot: videosRoot,
+          ffmpegPath: "ffmpeg",
+        },
+        backend,
+        whiteboardRasterizeFn: async (_svg, outPath) => {
+          await Bun.write(outPath, "png-stub");
+          return { path: outPath, width: 1080, height: 1920 };
+        },
+        sfxManifestPath,
+        mixRunFn: async (argv) => {
+          mixArgv = argv;
+          await Bun.write(argv[argv.length - 1]!, "m4a-stub"); // 混音产物
+        },
+        warn: () => {},
+      },
+    );
+
+    expect(result.step).toBe("compose");
+    expect(captured).toBeDefined();
+    // 帧数 = round(Σ实测 × 30fps)；Σ displaySec 精确等于 Σ段时长
+    expect(captured!.frames.length).toBe(Math.round(9 * 30));
+    const sum = captured!.frames.reduce((a, f) => a + f.displaySec, 0);
+    expect(sum).toBeCloseTo(9, 9);
+    expect(captured!.frames[0]!.path).toContain(join("cards", "whiteboard"));
+    expect(captured!.segmentDurations).toEqual(perSegment);
+    // 音效混音：argv 已构建，RenderJob 音轨切到 merged-sfx.m4a
+    expect(mixArgv).toBeDefined();
+    expect(mixArgv![0]).toBe("ffmpeg");
+    expect(captured!.audioTrack).toContain("merged-sfx.m4a");
+    // markStep 记录了渲染风格与音效追溯条目
+    const after = await load(slug, { videosRoot });
+    expect(after.state.steps.compose?.meta["style"]).toBe("whiteboard");
+    expect(after.state.steps.compose?.meta["sfx"]).toBe(true);
+    const entries = after.state.steps.compose?.meta["sfxEntries"] as string[];
+    expect(entries.some((e) => e.includes("pixabay#w"))).toBe(true);
+    expect(entries.some((e) => e.includes("CC0"))).toBe(true);
+  });
 });
 
 // ---- check gate (BR-U6-9) ------------------------------------------------------------

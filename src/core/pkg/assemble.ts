@@ -216,6 +216,9 @@ export async function assemble(
     ffmpegPath,
   );
   const backgroundEntries = await backgroundImageEntries(dir);
+  // 白板混音音效条目（compose 期从音效清单记录进 state；C12 可追溯）
+  const sfxEntries =
+    (dir.state.steps.compose?.meta["sfxEntries"] as string[] | undefined) ?? [];
 
   // ---- Steps 4-6: build inside package.tmp, then atomic swap (BR-U5-4) ----
   const pkgPath = dir.paths.pkg;
@@ -249,7 +252,8 @@ export async function assemble(
       `- TTS: ${provenance.ttsBackend}（音色: ${provenance.ttsVoice}）\n` +
       `- 卡片模板: ${provenance.cardTemplate}\n` +
       `- FFmpeg: ${provenance.ffmpegVersion}\n` +
-      backgroundEntries.map((entry) => `${entry}\n`).join("");
+      backgroundEntries.map((entry) => `${entry}\n`).join("") +
+      sfxEntries.map((entry) => `${entry}\n`).join("");
     await writeFile(
       join(tmpPath, PKG_FILES.materialsManifest),
       materialsContent,

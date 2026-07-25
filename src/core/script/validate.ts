@@ -18,6 +18,10 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 
 import { NotFoundError, ValidationError } from "@core/errors";
+// 只引轻量子模块（library/types），避免把 resvg/opentype 拉进校验链
+import { LINE_ART_NAMES, STICKER_NAMES } from "@core/whiteboard/library";
+import type { SceneElement, WhiteboardScene } from "@core/whiteboard/types";
+import { SCENE_ELEMENTS_MAX, THEMES } from "@core/whiteboard/types";
 
 import { SCRIPT_CONSTRAINTS, type Script, type Segment } from "./types";
 
@@ -162,7 +166,214 @@ function assertScriptShape(
     };
   }
 
-  return { title, topic, segments, source };
+  // style / theme（additive；缺省 cards 路径）
+  let style: Script["style"];
+  if (obj["style"] !== undefined) {
+    if (obj["style"] !== "cards" && obj["style"] !== "whiteboard") {
+      violations.push(
+        `style: 必须为 "cards" 或 "whiteboard"（得到 ${JSON.stringify(obj["style"])}）`,
+      );
+    } else {
+      style = obj["style"];
+    }
+  }
+  let theme: string | undefined;
+  if (obj["theme"] !== undefined) {
+    if (!isNonEmptyString(obj["theme"]) || THEMES[obj["theme"]] === undefined) {
+      violations.push(
+        `theme: 未知白板主题 ${JSON.stringify(obj["theme"])}（可用: ${Object.keys(THEMES).join(", ")}）`,
+      );
+    } else {
+      theme = obj["theme"];
+    }
+  }
+
+  // whiteboard 风格：每段必须带 scene（cards 风格下 scene 被忽略并警告）
+  if (style === "whiteboard") {
+    for (const [i, segment] of segments.entries()) {
+      if (segment.scene === undefined) {
+        violations.push(
+          `segments[${i}].scene: style="whiteboard" 时每段必须提供场景描述`,
+        );
+      }
+    }
+  } else if (segments.some((s) => s.scene !== undefined)) {
+    warn('警告: 存在 segments[].scene 但 style 不是 "whiteboard"，将被忽略');
+  }
+
+  const script: Script = { title, topic, segments, source };
+  if (style !== undefined) script.style = style;
+  if (theme !== undefined) script.theme = theme;
+  return script;
+}
+
+/**
+ * 白板场景元素校验（shape + 名字表 + 文案长度；image 文件存在性在
+ * compose 期检查——validateScript 无 workdir 上下文，同 backgroundImage）.
+ */
+function assertSceneShape(
+  raw: unknown,
+  at: string,
+  violations: string[],
+): WhiteboardScene | undefined {
+  if (typeof raw !== "object" || raw === null || Array.isArray(raw)) {
+    violations.push(`${at}: 必须为对象 { elements: [...] }`);
+    return undefined;
+  }
+  const rawElements = (raw as Record<string, unknown>)["elements"];
+  if (!Array.isArray(rawElements) || rawElements.length === 0) {
+    violations.push(`${at}.elements: 必须为非空数组`);
+    return undefined;
+  }
+  if (rawElements.length > SCENE_ELEMENTS_MAX) {
+    violations.push(
+      `${at}.elements: 元素数 ${rawElements.length} 超上限 ${SCENE_ELEMENTS_MAX}`,
+    );
+  }
+
+  const elements: SceneElement[] = [];
+  for (const [k, rawEl] of rawElements.entries()) {
+    const el = assertSceneElement(rawEl, `${at}.elements[${k}]`, violations);
+    if (el !== undefined) elements.push(el);
+  }
+  return { elements };
+}
+
+/** 手写文案长度断言辅助. */
+function assertLen(
+  value: string,
+  max: number,
+  at: string,
+  violations: string[],
+): void {
+  if ([...value].length > max) {
+    violations.push(`${at}: 超长 ${[...value].length} 字符（上限 ${max}）`);
+  }
+}
+
+function assertSceneElement(
+  raw: unknown,
+  at: string,
+  violations: string[],
+): SceneElement | undefined {
+  if (typeof raw !== "object" || raw === null) {
+    violations.push(`${at}: 必须为对象 { type, ... }`);
+    return undefined;
+  }
+  const el = raw as Record<string, unknown>;
+  const type = el["type"];
+  const C = SCRIPT_CONSTRAINTS;
+
+  const label = el["label"];
+  if (label !== undefined) {
+    if (!isNonEmptyString(label)) {
+      violations.push(`${at}.label: 必须为非空字符串`);
+    } else {
+      assertLen(label, C.sceneLabelMaxChars, `${at}.label`, violations);
+    }
+  }
+
+  switch (type) {
+    case "title":
+    case "text":
+    case "bullet": {
+      if (!isNonEmptyString(el["text"])) {
+        violations.push(`${at}.text: 必须为非空字符串`);
+        return undefined;
+      }
+      const max = type === "title" ? C.sceneTitleMaxChars : C.sceneTextMaxChars;
+      assertLen(el["text"], max, `${at}.text`, violations);
+      if (type === "title") {
+        const out: SceneElement = { type, text: el["text"] };
+        if (el["underline"] !== undefined) {
+          if (typeof el["underline"] !== "boolean") {
+            violations.push(`${at}.underline: 必须为布尔值`);
+          } else {
+            out.underline = el["underline"];
+          }
+        }
+        return out;
+      }
+      return { type, text: el["text"] };
+    }
+    case "icon": {
+      if (
+        !isNonEmptyString(el["name"]) ||
+        !LINE_ART_NAMES.includes(el["name"])
+      ) {
+        violations.push(
+          `${at}.name: 未知线稿元素 ${JSON.stringify(el["name"])}（可用: ${LINE_ART_NAMES.join(", ")}）`,
+        );
+        return undefined;
+      }
+      const out: SceneElement = { type, name: el["name"] };
+      if (el["accent"] !== undefined) {
+        if (typeof el["accent"] !== "boolean") {
+          violations.push(`${at}.accent: 必须为布尔值`);
+        } else {
+          out.accent = el["accent"];
+        }
+      }
+      if (isNonEmptyString(label)) out.label = label;
+      return out;
+    }
+    case "chart": {
+      const kind = el["chart"];
+      if (kind !== "bars-up" && kind !== "line-up" && kind !== "steps") {
+        violations.push(
+          `${at}.chart: 必须为 "bars-up"/"line-up"/"steps"（得到 ${JSON.stringify(kind)}）`,
+        );
+        return undefined;
+      }
+      const out: SceneElement = { type, chart: kind };
+      if (isNonEmptyString(label)) out.label = label;
+      return out;
+    }
+    case "image": {
+      const src = el["src"];
+      if (!isNonEmptyString(src)) {
+        violations.push(`${at}.src: 必须为非空字符串（图片路径）`);
+        return undefined;
+      }
+      if (
+        !C.backgroundImageExtensions.some((ext) =>
+          src.toLowerCase().endsWith(ext),
+        )
+      ) {
+        violations.push(
+          `${at}.src: "${src}" 扩展名不支持（允许 ${C.backgroundImageExtensions.join("/")}；文件存在性在 compose 期检查）`,
+        );
+        return undefined;
+      }
+      const out: SceneElement = { type, src };
+      if (el["circle"] !== undefined) {
+        if (typeof el["circle"] !== "boolean") {
+          violations.push(`${at}.circle: 必须为布尔值`);
+        } else {
+          out.circle = el["circle"];
+        }
+      }
+      if (isNonEmptyString(label)) out.label = label;
+      return out;
+    }
+    case "sticker": {
+      if (
+        !isNonEmptyString(el["name"]) ||
+        !(STICKER_NAMES as readonly string[]).includes(el["name"])
+      ) {
+        violations.push(
+          `${at}.name: 未知装饰件 ${JSON.stringify(el["name"])}（可用: ${STICKER_NAMES.join(", ")}）`,
+        );
+        return undefined;
+      }
+      return { type, name: el["name"] };
+    }
+    default:
+      violations.push(
+        `${at}.type: 未知元素类型 ${JSON.stringify(type)}（可用: title/text/bullet/icon/chart/image/sticker）`,
+      );
+      return undefined;
+  }
 }
 
 /**
@@ -247,8 +458,14 @@ function assertSegmentShape(
     }
   }
 
+  let scene: WhiteboardScene | undefined;
+  if (seg["scene"] !== undefined) {
+    scene = assertSceneShape(seg["scene"], `${at}.scene`, violations);
+  }
+
   const segment: Segment = { text, cardText };
   if (emphasis !== undefined) segment.emphasis = emphasis;
   if (backgroundImage !== undefined) segment.backgroundImage = backgroundImage;
+  if (scene !== undefined) segment.scene = scene;
   return segment;
 }

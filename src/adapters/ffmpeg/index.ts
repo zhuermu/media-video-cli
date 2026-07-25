@@ -5,5 +5,6 @@
  */
 export * from "./types";
 export * from "./args";
+export * from "./mix";
 export * from "./run";
 export * from "./probe";

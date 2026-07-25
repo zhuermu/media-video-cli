@@ -183,3 +183,126 @@ describe("validateScript", () => {
     expect(warnings[0]).toContain("已截断至 500");
   });
 });
+
+// ---- whiteboard 风格扩展（additive schema） --------------------------------
+
+/** whiteboard 风格的合法脚本 fixture. */
+function validWhiteboardScript(): Script {
+  const base = validScript();
+  return {
+    ...base,
+    style: "whiteboard",
+    theme: "clean",
+    segments: base.segments.map((s, i) => ({
+      ...s,
+      scene: {
+        elements:
+          i === 0
+            ? [
+                { type: "title", text: "安装 bun", underline: true },
+                { type: "text", text: "一条命令搞定" },
+              ]
+            : i === 1
+              ? [
+                  { type: "chart", chart: "bars-up", label: "更快" },
+                  { type: "sticker", name: "blob" },
+                ]
+              : [
+                  { type: "icon", name: "check", accent: true, label: "完成" },
+                  { type: "bullet", text: "秒级冷启动" },
+                ],
+      },
+    })),
+  };
+}
+
+describe("validateScript — whiteboard 扩展", () => {
+  test("合法 whiteboard 脚本通过并保留 style/theme/scene", async () => {
+    const script = await validateScript(await write(validWhiteboardScript()));
+    expect(script.style).toBe("whiteboard");
+    expect(script.theme).toBe("clean");
+    expect(script.segments[0]!.scene!.elements[0]).toEqual({
+      type: "title",
+      text: "安装 bun",
+      underline: true,
+    });
+  });
+
+  test("style=whiteboard 但缺 scene → 逐段违规", async () => {
+    const bad = { ...validScript(), style: "whiteboard" };
+    const message = await expectViolations(await write(bad));
+    expect(message).toContain("segments[0].scene");
+    expect(message).toContain("segments[2].scene");
+  });
+
+  test("非法 style / 未知 theme 被拒并列出可用值", async () => {
+    const bad = { ...validScript(), style: "3d", theme: "neon" };
+    const message = await expectViolations(await write(bad));
+    expect(message).toContain("style:");
+    expect(message).toContain("theme:");
+    expect(message).toContain("clean");
+  });
+
+  test("场景元素校验：未知类型/未知图标名/文案超长/坏图表种类一次性报全", async () => {
+    const s = validWhiteboardScript();
+    s.segments[0]!.scene = {
+      elements: [
+        { type: "wat" } as never,
+        { type: "icon", name: "nope" } as never,
+        { type: "title", text: "超长标题超长标题超长标题超长" },
+        { type: "chart", chart: "pie" } as never,
+      ],
+    };
+    const message = await expectViolations(await write(s));
+    expect(message).toContain("未知元素类型");
+    expect(message).toContain("未知线稿元素");
+    expect(message).toContain("超长");
+    expect(message).toContain('"bars-up"/"line-up"/"steps"');
+  });
+
+  test("image.src 扩展名校验 + label 超长", async () => {
+    const s = validWhiteboardScript();
+    s.segments[1]!.scene = {
+      elements: [
+        {
+          type: "image",
+          src: "photo.gif",
+          label: "这个标注实在是太长了呀",
+        } as never,
+      ],
+    };
+    const message = await expectViolations(await write(s));
+    expect(message).toContain("扩展名不支持");
+    expect(message).toContain("label");
+  });
+
+  test("cards 风格携带 scene → 警告但不拒绝", async () => {
+    const s = validScript() as Record<string, unknown>;
+    (s["segments"] as Record<string, unknown>[])[0]!["scene"] = {
+      elements: [{ type: "text", text: "会被忽略" }],
+    };
+    const warnings: string[] = [];
+    const script = await validateScript(await write(s), {
+      warn: (m) => warnings.push(m),
+    });
+    expect(script.segments[0]!.scene).toBeDefined();
+    expect(warnings.some((w) => w.includes("将被忽略"))).toBe(true);
+  });
+
+  test("scene.elements 空数组 / 超上限被拒", async () => {
+    const s = validWhiteboardScript();
+    s.segments[0]!.scene = { elements: [] };
+    const message = await expectViolations(await write(s));
+    expect(message).toContain("非空数组");
+
+    const s2 = validWhiteboardScript();
+    s2.segments[0]!.scene = {
+      elements: Array.from({ length: 7 }, () => ({
+        type: "text" as const,
+        text: "行",
+      })),
+    };
+    const message2 = await expectViolations(await write(s2));
+    expect(message2).toContain("超上限");
+  });
+});

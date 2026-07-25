@@ -13,3 +13,39 @@ data/
 
 # Coverage output
 coverage/
+
+# macOS
+.DS_Store
+
+# Experiment render artifacts (regenerable via demo scripts)
+experiments/**/frames/
+experiments/**/frames-*/
+experiments/**/stills/
+experiments/**/stills-v2/
+experiments/**/out/
+# Experiment TTS cache (regenerable; re-synthesized on demand)
+experiments/**/cache/
+# Experiment asset copies (bulk third-party icon/sfx libraries + local
+# screenshots). Re-fetch with the scripts under assets/ — see assets/ASSETS.md.
+experiments/**/assets/
+experiments/**/hands/
+
+# ── Third-party asset binaries: manifest/index + fetch script are the tracked
+# contract; the binaries stay local. Rationale in assets/ASSETS.md — some of
+# these carry redistribution questions, all of them are re-fetchable.
+
+# Royalty-free SFX audio files (manifest.json records source+license per entry)
+assets/sfx/*.wav
+assets/sfx/*.mp3
+# Handwriting font binaries (manifest.json records source+license; re-download per manifest)
+assets/fonts/*.ttf
+assets/fonts/*.otf
+# Sparkol hand/music library — licensed VideoScribe library content, NOT
+# redistributable. Restore with: python3 assets/sparkol/fetch_library.py
+assets/sparkol/**/*.png
+assets/sparkol/**/*.mp3
+# ManyPixels illustrations (attribution-required, 2362 SVGs / 47MB).
+# index.json is the searchable contract; restore SVGs with:
+#   python3 assets/manypixels/fetch_manypixels.py download
+assets/manypixels/svg/
+assets/manypixels/*.svg

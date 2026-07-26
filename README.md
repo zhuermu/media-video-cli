@@ -1,4 +1,4 @@
-# media-video-agent
+# media-video-cli
 
 半自动短视频生产管线：把一篇 Markdown 文章（或一句主题）变成一条**竖版口播视频** +
 一个**可直接上传的发布包**（视频号 / 抖音）。
@@ -6,6 +6,11 @@
 单人自媒体工具，本地 macOS 运行，无云端部署。所有确定性工作（校验、合成、渲染、
 打包、登记）由 `vagent` CLI 完成；内容创作（script.json、发布文案）由 LLM agent
 或人来写。
+
+> **改名说明（2026-07-26）**：项目原名 `media-video-agent`，现改名 `media-video-cli`
+> ——它的形态是一条 CLI，agent 是调用方而不是它本身。目录、包名、文档引用都已换新；
+> **命令名 `vagent` 不变**，既有脚本和 skills 不用改。旧路径 `~/…/media-video-agent`
+> 需要手动更新为 `~/…/media-video-cli`。
 
 ## 两种成片形态
 
@@ -23,8 +28,8 @@
 - TTS：默认 Edge TTS（免费、联网，`msedge-tts`）；离线可切 macOS `say`
 
 ```bash
-git clone git@github.com:zhuermu/media-video-agent.git
-cd media-video-agent
+git clone git@github.com:zhuermu/media-video-cli.git
+cd media-video-cli
 bun install
 cp .env.example .env      # 全部键可留空，见「配置」
 bun run vagent help
@@ -48,6 +53,18 @@ vagent register add --platform douyin --url … --title … --published-at … -
 
 `vagent` = `bun run src/cli/main.ts`，命令须在仓库目录下执行。
 
+### 给大模型调用（skills 的入口）
+
+```bash
+vagent schema --json            # 整张命令表：参数类型/值域/默认值/示例/产物/前置
+vagent persona show --json      # 作者人设：口吻 / 选题 / 禁区 / 术语英文清单 / CTA / 署名
+vagent <任意命令> --dry-run     # 试跑：校验 + 报计划与规模预估，零写入
+```
+
+`skills/` 下两个 skill（`video-agent` 卡片视频、`whiteboard-video` 白板视频）就是按这条
+纪律写的：**先读 schema 拿参数 → `--dry-run` 验证 → 真跑**，不在 skill 里抄参数（抄的
+那份会漂移）。仓库的 `skills/` 是事实源，`bun run skills:sync` 拷到 `~/.kiro/skills/`。
+
 ### 白板讲解视频（文章直出）
 
 ```bash
@@ -55,7 +72,12 @@ vagent whiteboard render ./article.md --only-stills   # 几秒出关键帧，先
 vagent whiteboard render ./article.md                 # 整片，约 1 小时
 ```
 
+渲整片之前的两道快检：`--dry-run`（秒级，查脚本语法 + 报帧数与预计耗时）、
+`--preview 40 --fresh`（约一分钟，听配音与音效、看字幕）。
 改过文章或版式后必须加 `--fresh`（默认续跑会复用旧帧）。
+
+配了人设时，收尾拉远会在画布角落手写「二木」+ 一行关注引导；不想要就在文章里写
+`> signature: off`。
 文章写法与场景 DSL 见 [docs/whiteboard.md](docs/whiteboard.md)。
 
 ## 硬红线

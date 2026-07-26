@@ -10,13 +10,33 @@ vagent CLI；你只做**参数收集、生成 LLM 文案（script.json 与 metad
 错误、在两个审核位呈现产物并代收用户确认**。CLI 删除本技能后仍完整可用；本技能不含任何
 独立业务逻辑（BR-U6-5）。
 
-## 运行方式
+## 运行方式：先读 schema，再试跑，最后真跑
 
-所有命令在 `media-video-agent/` 目录下运行：
+所有命令在 `media-video-cli/` 目录下运行：
 
 ```bash
 bun run src/cli/main.ts <命令> [参数]     # 下文简写为 vagent <命令>
 ```
+
+**① 参数从 schema 拿，不要从本文抄。**
+
+```bash
+vagent schema --json    # 整张命令表：每条命令的参数类型/值域/默认值/示例/产物/前置
+```
+
+本文只讲**流程与内容约束**；参数细节以 schema 为准。理由很直接：抄一份参数说明进
+skill，命令改了之后这份就是错的，而错的表现是你传了一个不存在的 flag。
+
+**② 贵命令先试跑。** 任何命令都支持 `--dry-run`：校验参数与前置产物、打印将写哪些
+文件与规模预估（段数、帧数、预计耗时），**零写入**后退出 0。
+
+```bash
+vagent tts run <slug> --dry-run --json      # 先看段数与预计时长
+vagent compose run <slug> --dry-run         # 先看缺不缺前置产物
+```
+
+TTS 是联网合成、compose/whiteboard 是几分钟到一小时的渲染。试跑一秒钟能查出的问题
+（slug 拼错、script.json 还没写、五份 metadata 缺一份），不要用一次真跑去发现。
 
 - stdout = 结果；stderr = 进度与诊断。需要结构化结果时加 `--json`（stdout 只输出一行
   JsonEnvelope：`{ok, step?, data?, error?: {type, message, context}}`）。
@@ -31,6 +51,47 @@ bun run src/cli/main.ts <命令> [参数]     # 下文简写为 vagent <命令>
 2. **错误转述、不绕过**（BR-U6-6）：任何 CLI 非零退出，必须把 `error.type`、`message`
    与其中的建议动作**原样转述**给用户后停下。禁止吞错、静默重试掩盖、或用别的方式绕过
    校验（唯一例外：步骤 3 的 script.json 修正循环，上限 2 次，见下）。
+
+## 人设注入（写任何文案之前）
+
+```bash
+vagent persona show --json
+```
+
+拿到的是作者人设：`tone`（口吻规则）、`topics`（选题范围）、`avoid`（不碰的题材）、
+`keepEnglish`（术语英文保留清单）、`cta`（关注引导候选）、`penName` / `signature`
+（署名）、`defaultVoice`（默认音色）。**所有 LLM 产出的文案都按它写**：script.json 的
+口播、两个平台的 titles/description、publish-advice。
+
+不要把这些规则抄进本文——人设改了本文不会跟着改，而"同一个号出现两种口吻"是观众唯一
+会记住的不一致。人设文件缺失时 `persona show` 会明说未配置，此时按中性技术口吻写，
+并且不署名、不写 CTA。
+
+## 术语：term of art 保留英文
+
+`keepEnglish` 清单里的词**一律保留英文原词**，首次出现可以加一句中文注解，但不要用译名
+替换它：
+
+> prompt · context · harness · loop · graph · agent · verifier · fan-out · fan-in ·
+> state · topology · routing · embedding · token · RAG · MCP · skill ·
+> context window · state machine · guardrail
+
+两个理由：这些词是社区共识的检索锚点，译过来读者就搜不到原文；而且「上下文工程」
+「图工程」这类译法在不同文章里指的还不是同一件事——译名会把一个精确的词变成一个含糊的词。
+
+**口播里也保留。** TTS 念英文术语没有问题，念一个自造译名才会让同行皱眉。
+
+## 改写海外英文原文的协议
+
+拿英文原文（博客、论文、release note）改写成中文视频稿时，逐条遵守：
+
+1. **术语不译**（见上）。原文的 `loop engineering` 就写 loop engineering。
+2. **观点不能升级成事实。** 原文「某人认为 / 有人主张」必须保留归属；写成「事实是」
+   是最常见也最致命的一类失真。
+3. **数字、版本号、时间点回原文核对。** 记不准就不写，别取整、别推测。
+4. **保留出处与作者。** materials-manifest.md 里逐条写原文标题 + 链接 + 作者；
+   转述观点时在口播里点名是谁说的。
+5. **不搬运，要重构。** 视频稿的结构按"观众的问题顺序"重排，不是把原文段落顺序翻译一遍。
 
 ## 编排流程
 
@@ -186,6 +247,14 @@ description: 一句话简介（非空）
 - `tags`：**至少 1 条**。
 - `description`：**非空**字符串。
 
+**按人设写这几个字段**：标题按 `tone`（先给结论、不用「颠覆」「必看」这类词）；
+`description` 结尾放一条 `cta`（关注引导，从 `persona show` 的候选里挑一条，按平台调整
+长度）；`materials-manifest.md` 里逐条列原文出处（改写海外原文时尤其必要）。
+
+发布包组装时 CLI 会把 `penName` / `bio` / `cta[0]` 写进 `manifest.json` 的 `author`
+块，SUMMARY.md 的检查单也会多一项「简介或评论区首条带关注引导」——**你不需要手动往
+manifest 里写署名**，只要把文案写对。
+
 ### 步骤 7 · 组装发布包 + 审核位 2 ⏸
 
 ```bash
@@ -199,6 +268,9 @@ vagent package assemble <slug>    # 可选 --cover <图片>（宽度须 ≥720px
 > ⚠️ 上传时**必须勾选平台的「AI 生成内容」声明选项**——这是检查单置顶必选项。
 
 然后请用户**人工核对检查单、人工上传**。此处流程暂停，等用户回来。
+
+呈现时把两件事一起说：AIGC 勾选（红线）与**关注引导**（`manifest.author.cta`，写在简介
+结尾或评论区首条）。后者是检查单里的普通项，容易被跳过，而它是这条流水线唯一的涨粉动作。
 
 ### 步骤 8 · 发布登记（用户确认上传完成后）
 

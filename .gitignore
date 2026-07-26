@@ -21,6 +21,7 @@ coverage/
 experiments/**/frames/
 experiments/**/frames-*/
 experiments/**/stills/
+experiments/**/stills-*/
 experiments/**/stills-v2/
 experiments/**/out/
 # Experiment TTS cache (regenerable; re-synthesized on demand)

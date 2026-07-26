@@ -38,6 +38,33 @@ adapters/   子进程与外部系统胶水（不计入覆盖率分母）
 | `registry/`         | 发布登记、周指标、周报/基线报告（JSONL 数据面）                |
 | `whiteboard/`       | 白板**场景 DSL**：笔顺手写、图标笔描、图表、运镜、音效事件规划 |
 | `whiteboard-video/` | **文章直出**白板视频：分镜、多角色配音、排片、逐帧、混音、字幕 |
+| `persona/`          | 作者人设（口吻/术语/CTA/署名/默认音色）加载与校验              |
+
+`persona/` 是一份数据、三个消费点：skills 写作（`vagent persona show --json`）、
+发布包 `manifest.author`（署名 + 关注引导）、白板视频收尾的手写签名。缺文件返回
+`undefined`（不署名，不阻断流水线）；文件在但字段缺 → `ValidationError`。
+
+#### `whiteboard-video/` 内部分工
+
+| 文件                           | 职责                                                         |
+| ------------------------------ | ------------------------------------------------------------ |
+| `article.ts`                   | Markdown → 分镜（片级指令 cast/format/background/signature） |
+| `narrate.ts`                   | 逐句 TTS + 词级时间戳 + 落盘缓存                             |
+| `format.ts`                    | 按**实测**配音总时长定体裁与画幅                             |
+| `layout.ts`                    | 字阶、边距、格高比例、`contentBottom`（字幕带 + 镜头位移）   |
+| `canvas.ts`                    | 无限画布：蛇形格子、镜头计划、按格剔除、相机变换             |
+| `compose.ts`                   | 排片：拍子 → 时间轴、段间连接箭头、收尾署名、音效点位声明    |
+| `blocks.ts` / `marker.ts`      | 标题/要点/划掉等文字块与笔迹揭示                             |
+| `board-block.ts`               | 七种图形块（table/flow/mindmap/icons/scene/note/status）     |
+| `chart-block.ts` / `charts.ts` | 图表（bar/pie）与真实刻度                                    |
+| `diagrams.ts`                  | 流程图（dagre 分层，含分支与汇合）、导图、表格几何           |
+| `render.ts` / `mux.ts`         | 逐帧 SVG → PNG；旁白入轨 + 音效混音 + 封装                   |
+| `subtitle.ts`                  | 词级时间戳 → 字幕行 + 帧内矢量字幕（无衬线，与板书区分）     |
+
+**音效语义层**：`Storyboard.sfxCues` 由排版层声明（`ding` 打勾 / `pop` 图形块入场 /
+`sparkle` 强调标记与署名 / `page` 收尾拉远），`writing` 来自笔活跃区间、`whoosh` 来自
+镜头移动。混音层（`adapters/ffmpeg/mix.ts`）只按表铺声，不猜语义——早先 whoosh 挂在
+"擦板起点"，无限画布改版把擦板换成镜头平移之后挂钩静默失效，整片一声不响。
 
 `whiteboard/` 与 `whiteboard-video/` 是两条不同入口：前者服务 `compose run` 的
 `style: "whiteboard"`（script.json 声明场景），后者服务 `whiteboard render`
@@ -53,11 +80,16 @@ adapters/   子进程与外部系统胶水（不计入覆盖率分母）
 
 ```
 main.ts        解析 → 分派 → 单一 catch → exit（唯一 exit 点）
-parse.ts       ROUTES 路由表 + util.parseArgs（零 CLI 框架依赖）
+parse.ts       ROUTES 路由表（参数元数据事实源）+ util.parseArgs（零框架）
+dry-run.ts     --dry-run 试跑档：校验 + 报计划 + 零写入（dispatch 顶部单点分流）
 envelope.ts    JsonEnvelope ok/err
 exit.ts        错误 → 退出码映射
-commands/      一命令一文件
+commands/      一命令一文件（含 schema / persona show）
 ```
+
+路由表的元数据（每个 flag 的 desc/values/default/example、命令的 produces/requires/
+cost）同时喂三处输出：`--help`、`vagent schema --json`、`docs/cli.md` 的生成段。
+`scripts/gen-cli-docs.ts` 生成后者，`src/cli/docs.test.ts` 守漂移。
 
 ## 错误模型
 

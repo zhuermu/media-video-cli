@@ -62,6 +62,8 @@ import type { CommandResult } from "../envelope";
 /** Parsed argv surface of `compose run`. */
 export interface ComposeRunArgs {
   slug: string;
+  /** 卡片模板 JSON 路径；不给则按配置里的模板名解析到 assets/templates/. */
+  template?: string;
   videosRoot?: string;
 }
 
@@ -295,6 +297,7 @@ export async function runComposeRun(
     // 既有静态卡片路径
     // Template: config 名 → shipped assets/templates/<name>.json sibling.
     const templatePath =
+      args.template ??
       seams.templatePath ??
       join(dirname(DEFAULT_TEMPLATE_PATH), `${config.cardTemplate}.json`);
     const { template, warnings } = loadTemplate(templatePath);

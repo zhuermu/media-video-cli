@@ -14,6 +14,7 @@ import { initVideo, type InputRef } from "@core/workdir";
 import { ValidationError } from "@core/errors";
 
 import type { CommandResult } from "../envelope";
+import { usageOf } from "../parse";
 
 /** Parsed argv surface of `init`. */
 export interface InitArgs {
@@ -34,7 +35,8 @@ export async function runInit(args: InitArgs): Promise<CommandResult> {
   if ((args.article === undefined) === (args.topic === undefined)) {
     throw new ValidationError(
       "init 需要且仅需要 --article 或 --topic 之一\n" +
-        "用法: vagent init <slug> --article <path.md> | --topic <文字>",
+        // 用法行取自路由表，避免命令实现和 --help / schema 说两套
+        `用法: ${usageOf("init")}`,
     );
   }
   const input: InputRef =

@@ -1,5 +1,5 @@
 {
-  "name": "media-video-agent",
+  "name": "media-video-cli",
   "version": "0.0.0",
   "private": true,
   "type": "module",
@@ -7,15 +7,20 @@
     "vagent": "bun run src/cli/main.ts",
     "check": "prettier --check . && bun test",
     "test": "bun test",
-    "format": "prettier --write ."
+    "format": "prettier --write .",
+    "skills:sync": "bun run scripts/sync-skills.ts",
+    "docs:cli": "bun run scripts/gen-cli-docs.ts"
   },
   "devDependencies": {
     "@types/bun": "1.3.14",
+    "@types/d3-scale": "4.0.9",
     "prettier": "3.9.6",
     "typescript": "7.0.2"
   },
   "dependencies": {
+    "@dagrejs/dagre": "3.0.0",
     "@resvg/resvg-js": "2.6.2",
+    "d3-scale": "4.0.2",
     "hanzi-writer-data": "2.0.1",
     "msedge-tts": "2.0.7",
     "opentype.js": "1.3.4"

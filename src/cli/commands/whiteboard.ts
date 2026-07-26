@@ -11,8 +11,15 @@
  */
 
 import { ValidationError } from "@core/errors";
-import type { ArmMode, VideoKind } from "@core/whiteboard-video";
+import type {
+  ArmMode,
+  BoardBackground,
+  CursorKind,
+  VideoKind,
+} from "@core/whiteboard-video";
 import {
+  BOARD_BACKGROUNDS,
+  isBoardBackground,
   renderWhiteboardStills,
   renderWhiteboardVideo,
   toStderr,
@@ -32,14 +39,41 @@ export interface WhiteboardRenderArgs {
   tag?: string;
   persona?: string;
   assets?: string;
+  background?: string;
+  cursor?: string;
   onlyStills: boolean;
+  preview?: string;
   fresh: boolean;
   noBurn: boolean;
   arm?: string;
 }
 
+const CURSORS = new Set<CursorKind>(["pen", "hand"]);
+
+/** `--cursor` 值域校验. */
+function parseCursor(raw: string | undefined): CursorKind | undefined {
+  if (raw === undefined) return undefined;
+  if (!CURSORS.has(raw as CursorKind)) {
+    throw new ValidationError(
+      `--cursor 只接受 ${[...CURSORS].join(" | ")}，得到 "${raw}"`,
+    );
+  }
+  return raw as CursorKind;
+}
+
 const KINDS = new Set<VideoKind>(["short", "long", "auto"]);
 const ARM_MODES = new Set<ArmMode>(["cuff", "extend"]);
+
+/** `--background` 值域校验（设计稿 §2 的六种背景）. */
+function parseBackground(raw: string | undefined): BoardBackground | undefined {
+  if (raw === undefined) return undefined;
+  if (!isBoardBackground(raw)) {
+    throw new ValidationError(
+      `--background 只接受 ${BOARD_BACKGROUNDS.join(" | ")}，得到 "${raw}"`,
+    );
+  }
+  return raw;
+}
 
 /** `--arm` 值域校验. */
 function parseArmMode(raw: string | undefined): ArmMode | undefined {
@@ -83,12 +117,25 @@ export async function runWhiteboardRender(
   if (kind !== undefined) opts.kind = kind;
   const arm = parseArmMode(args.arm);
   if (arm !== undefined) opts.armMode = arm;
+  const background = parseBackground(args.background);
+  if (background !== undefined) opts.background = background;
+  const cursor = parseCursor(args.cursor);
+  if (cursor !== undefined) opts.cursor = cursor;
   if (args.out !== undefined) opts.outDir = args.out;
   if (args.frames !== undefined) opts.framesDir = args.frames;
   if (args.stills !== undefined) opts.stillsDir = args.stills;
   if (args.cache !== undefined) opts.cacheDir = args.cache;
   if (args.tag !== undefined) opts.tag = args.tag;
   if (args.persona !== undefined) opts.persona = args.persona;
+  if (args.preview !== undefined) {
+    const sec = Number(args.preview);
+    if (!Number.isFinite(sec) || sec <= 0) {
+      throw new ValidationError(
+        `--preview 需要一个正数秒数，得到 "${args.preview}"`,
+      );
+    }
+    opts.previewSec = sec;
+  }
   // `--assets` 给的是**素材根**，两个库按约定的子目录名找
   if (args.assets !== undefined) {
     opts.assets = {

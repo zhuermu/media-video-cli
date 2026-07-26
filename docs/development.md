@@ -4,12 +4,36 @@
 
 ```bash
 bun run vagent <cmd>   # = bun run src/cli/main.ts
+bun run vagent schema --json   # 整张命令表（参数事实源；skills 读它）
 bun test               # 单测 + e2e（含覆盖率）
 bun run check          # 门禁：prettier --check + bun test
 bun run format         # prettier --write .
+bun run docs:cli       # 重新生成 docs/cli.md 的命令参考段（改过参数必跑）
+bun run skills:sync    # 仓库 skills/ → ~/.kiro/skills/（仓库是事实源）
 ```
 
 全部在仓库目录下执行。
+
+改过路由表（加/改 flag、改值域、改产物）之后**必须跑 `bun run docs:cli`**，否则
+`bun run check` 里的漂移测试会失败并点名。
+
+## 渲染纪律（别用一小时去发现一个拼写错误）
+
+渲染是这个仓库最贵的操作：白板整片上万帧、近一小时。所以顺序固定：
+
+```bash
+vagent whiteboard render a.md --dry-run --json   # 秒级：脚本语法 + 段数/帧数/耗时预估
+vagent whiteboard render a.md --only-stills      # 几秒：逐段关键帧，看版式
+vagent whiteboard render a.md --preview 40 --fresh  # 约一分钟：听配音/音效、看字幕
+vagent whiteboard render a.md                    # 整片
+```
+
+- `--dry-run` 是**零写入**的（表驱动测试守着这条：跑完目录树逐字节不变）。
+- `--preview <秒>` 把帧、旁白、音效、字幕截在同一个上限，所以听到的就是整片开头那一段；
+  产物与帧目录都带 `-preview` 后缀，不会污染整片续跑。
+- 改过文章或版式重渲**必须 `--fresh`**：默认续跑是为中断恢复设计的，不是为改稿设计的。
+- 只想看某一帧时用 `experiments/hand-frame.ts` 或 `experiments/section-shots.ts`，
+  不要为了看一眼去渲整片。
 
 ## 质量门禁
 

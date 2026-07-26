@@ -29,6 +29,8 @@ import {
 } from "@core/pkg";
 import { load, type VideoDir } from "@core/workdir";
 
+import { loadPersona } from "@core/persona";
+
 import type { CommandResult } from "../envelope";
 
 /** Parsed argv surface of `package assemble|validate`. */
@@ -109,7 +111,13 @@ export async function runPackageAssemble(
   const dir = await load(args.slug, { videosRoot: args.videosRoot });
   const meta = resolveMetadataFiles(dir, args.cover);
 
-  const pkg = await assemble(dir, meta, seams.assembleOptions);
+  // 人设是可选素材：缺文件就不写 author 块（见 core/persona 的加载语义）。
+  // 显式配了却写坏了会在这里 fail-loud——署名错了比没署名更糟。
+  const persona = loadPersona();
+  const pkg = await assemble(dir, meta, {
+    ...seams.assembleOptions,
+    ...(persona === undefined ? {} : { persona }),
+  });
   await assertPackageDeliverable(pkg);
 
   return {

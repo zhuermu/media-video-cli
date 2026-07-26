@@ -13,8 +13,10 @@
  */
 
 import { redact } from "@core/config";
+import { ValidationError } from "@core/errors";
 
 import { err, ok, type CommandResult, type JsonEnvelope } from "./envelope";
+import { runDryRun } from "./dry-run";
 import { mapExitCode } from "./exit";
 import { helpText, parseCli, type ParsedCommand } from "./parse";
 
@@ -25,6 +27,8 @@ import { runMetricsAdd } from "./commands/metrics";
 import { runPackageAssemble, runPackageValidate } from "./commands/package";
 import { runRegisterAdd } from "./commands/register";
 import { runReportBaseline, runReportWeekly } from "./commands/report";
+import { runPersonaShow } from "./commands/persona";
+import { runSchema } from "./commands/schema";
 import { runScriptValidate } from "./commands/script";
 import { runTtsRun } from "./commands/tts";
 import { runWhiteboardRender } from "./commands/whiteboard";
@@ -40,6 +44,10 @@ function str(
 
 /** Route → command function dispatch (CommandSpec 委托面). */
 async function dispatch(cmd: ParsedCommand): Promise<CommandResult> {
+  // 试跑档在真实命令**之前**分流：这里返回之后，任何写盘代码都不会被调到。
+  // 放在 dispatch 顶部而不是每条命令里，是为了让"零写入"这条保证只有一个位置
+  // 需要成立——每条命令各自实现 --dry-run 时，漏一条就是一次意外落盘。
+  if (cmd.dryRun) return runDryRun(cmd);
   const slug = cmd.positionals[0] ?? "";
   const v = cmd.values;
   switch (cmd.route) {
@@ -60,7 +68,11 @@ async function dispatch(cmd: ParsedCommand): Promise<CommandResult> {
         videosRoot: cmd.videosRoot,
       });
     case "compose run":
-      return runComposeRun({ slug, videosRoot: cmd.videosRoot });
+      return runComposeRun({
+        slug,
+        template: str(v, "template"),
+        videosRoot: cmd.videosRoot,
+      });
     case "package assemble":
       return runPackageAssemble({
         slug,
@@ -76,6 +88,7 @@ async function dispatch(cmd: ParsedCommand): Promise<CommandResult> {
         title: str(v, "title")!,
         publishedAt: str(v, "published-at")!,
         package: str(v, "package")!,
+        ...(cmd.dataRoot === undefined ? {} : { dataRoot: cmd.dataRoot }),
       });
     case "metrics add":
       return runMetricsAdd({
@@ -86,13 +99,22 @@ async function dispatch(cmd: ParsedCommand): Promise<CommandResult> {
         likes: str(v, "likes")!,
         comments: str(v, "comments")!,
         shares: str(v, "shares")!,
+        ...(cmd.dataRoot === undefined ? {} : { dataRoot: cmd.dataRoot }),
       });
     case "report weekly":
-      return runReportWeekly();
+      return runReportWeekly(
+        cmd.dataRoot === undefined ? {} : { dataRoot: cmd.dataRoot },
+      );
     case "report baseline":
-      return runReportBaseline();
+      return runReportBaseline(
+        cmd.dataRoot === undefined ? {} : { dataRoot: cmd.dataRoot },
+      );
     case "check":
       return runCheckCommand();
+    case "schema":
+      return runSchema();
+    case "persona show":
+      return runPersonaShow();
     case "whiteboard render":
       return runWhiteboardRender({
         article: slug,
@@ -105,13 +127,16 @@ async function dispatch(cmd: ParsedCommand): Promise<CommandResult> {
         persona: str(v, "persona"),
         assets: str(v, "assets"),
         arm: str(v, "arm"),
+        background: str(v, "background"),
+        cursor: str(v, "cursor"),
         onlyStills: v["only-stills"] === true,
+        preview: str(v, "preview"),
         fresh: v["fresh"] === true,
         noBurn: v["no-burn"] === true,
       });
     default:
       // Unreachable: parseCli only returns routes from the table.
-      throw new Error(`路由未实现: ${cmd.route}`);
+      throw new ValidationError(`路由未实现: ${cmd.route}`);
   }
 }
 

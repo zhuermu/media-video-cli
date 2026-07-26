@@ -140,8 +140,8 @@ describe("palette（设计稿 2.0 §3）", () => {
 });
 
 describe("board 背景（设计稿 §2）", () => {
-  it("六种背景齐全且都能通过守卫", () => {
-    expect(BOARD_BACKGROUNDS).toHaveLength(6);
+  it("八种背景齐全且都能通过守卫（六种纸面 + 两种深板）", () => {
+    expect(BOARD_BACKGROUNDS).toHaveLength(8);
     for (const bg of BOARD_BACKGROUNDS)
       expect(isBoardBackground(bg)).toBe(true);
     expect(isBoardBackground("marble")).toBe(false);

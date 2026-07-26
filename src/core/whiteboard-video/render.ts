@@ -28,6 +28,7 @@ import {
   boardOverlaySvg,
   boardStyleFor,
   boardSurfaceSvg,
+  isDarkBackground,
 } from "./board";
 import type { BoardBackground } from "./board";
 import { cameraTransform, cellVisible, viewRect } from "./canvas";
@@ -71,9 +72,12 @@ export function frameSvgFactory(input: FrameSvgInput): (t: number) => string {
   const bg = input.background ?? "plain";
   // 板面样式随背景派生（米白纸换底色），光学层沿用设计稿板面
   const boardStyle = boardStyleFor(bg, BOARD_DESIGN);
+  // 字幕跟着板面深浅翻个：深板上深字看不见，白色字幕板也会在深底上炸开一块白
+  const dark = isDarkBackground(bg);
   const subs = subtitleEl(storyboard.subtitles, {
     width: L.width,
     height: L.height,
+    ...(dark ? { color: "#F1F5F9", plate: "#12161bcc" } : {}),
   });
   const defs = storyboard.illustrations.map((il) => flatDefs(il)).join("");
 

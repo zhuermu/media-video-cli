@@ -71,6 +71,48 @@ export const PALETTE: Readonly<Record<InkRole, string>> = {
   info: "#06B6D4",
 };
 
+/** 一整套语义色（八个角色都有值）. */
+export type PaletteRoles = Readonly<Record<InkRole, string>>;
+
+/**
+ * 深色板面的八色板。
+ *
+ * ## 为什么必须整套换，而不是只把底色调暗
+ *
+ * 短视频平台把标题、时长、按钮这些 UI 用**白字**叠在画面上。白板底色是近白的，
+ * 于是平台 UI 直接消失——这不是审美问题，观众连"这条视频多长"都看不到。
+ * 反过来把板面调暗，深墨（`#222222`）就看不见了：底色和墨色是一对，只换一头
+ * 等于把内容擦掉。
+ *
+ * ## 值是按对比度挑的，不是把亮色调暗
+ *
+ * 在 `#1E232A` 底上：`ink #F1F5F9` ≈ 14:1（正文），`muted #94A3B8` ≈ 6.5:1
+ * （注解仍读得清——原来的 `#64748B` 只有 3:1，小字会糊成一团），
+ * `primary #60A5FA` ≈ 7:1（原 `#2563EB` 只有 3.3:1，细笔画在手机上会断）。
+ * 绿和红也各提一档：`#16A34A`/`#EF4444` 在深底上偏闷，`#4ADE80`/`#F87171`
+ * 保住了"通过 / 风险"的辨识度。
+ */
+export const DARK_PALETTE: PaletteRoles = {
+  ink: "#F1F5F9",
+  primary: "#60A5FA",
+  success: "#4ADE80",
+  warn: "#FBBF24",
+  danger: "#F87171",
+  muted: "#94A3B8",
+  accent2: "#A78BFA",
+  info: "#22D3EE",
+};
+
+/**
+ * 亮色/深色两套语义色的取表函数。
+ *
+ * 仍然**不做运行时主题切换**（见模块头）：这是纯查表，调用方在一次渲染开始时
+ * 取一次、随 ctx 往下传，帧函数看到的是一个不变的对象。
+ */
+export function rolesFor(dark: boolean): PaletteRoles {
+  return dark ? DARK_PALETTE : PALETTE;
+}
+
 /** 角色名清单（校验/枚举用；顺序即设计稿 2.0 §3 的排列顺序）. */
 export const INK_ROLES: readonly InkRole[] = [
   "ink",
@@ -133,6 +175,16 @@ export type HighlightRole = (typeof HIGHLIGHTS)[number];
  * 开始发灰（荧光笔是叠色不是覆盖，而 SVG 的 alpha 混合会真的压暗文字）。
  */
 export const HIGHLIGHT_OPACITY = 0.35;
+
+/**
+ * 深底上的荧光涂抹不透明度。
+ *
+ * 亮色板上荧光是"压暗一块"（半透明黄压在黑字上，0.35 正好）；深色板上同一个值
+ * 会变成一块暗褐，把压在上面的浅色字**对比度拉低**——本来想强调，结果那几个字
+ * 反而最难读。深板上的正确做法是只留一层很淡的底（0.15 是"看得出扫过一笔、
+ * 不吃字"的上限），强调靠字色而不是靠底色。
+ */
+export const DARK_HIGHLIGHT_OPACITY = 0.15;
 
 /** 第 n 条强调色（按设计稿 §3 的强调色1/2/3 顺序，越界回绕）. */
 export function highlightOf(index: number): string {

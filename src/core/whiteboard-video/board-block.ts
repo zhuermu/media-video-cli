@@ -33,6 +33,7 @@ import { STATUS_KINDS, isStatusKind, statusBadgePaths } from "./emphasis";
 import type { StatusKind } from "./emphasis";
 import { markerStrokesEl } from "./marker";
 import { PALETTE, inkOf } from "./palette";
+import type { PaletteRoles } from "./palette";
 import { SCENE_NAMES, isSceneName, partColor, scene } from "./scenes";
 import type { SceneName } from "./scenes";
 import { cloudPath, speechBoxPath, stickyNoteSvg } from "./shapes";
@@ -350,6 +351,19 @@ export interface BoardBlockCtx {
   /** 正文字号（块内文字以它为基准）. */
   bodySize: number;
   idp: string;
+  /**
+   * 语义色（亮/深两套，见 palette 的 `rolesFor`）。
+   *
+   * 必须随 ctx 传进来而不是直接引用常量表：深色板面上 `muted`/`primary`
+   * 要整套换值，写死引用会让注解和箭头在深板上糊成一团。缺省是亮色板，
+   * 老调用点不受影响。
+   */
+  roles?: PaletteRoles;
+}
+
+/** ctx 里的语义色（缺省 = 亮色板）. */
+function rolesOf(ctx: BoardBlockCtx): PaletteRoles {
+  return ctx.roles ?? PALETTE;
 }
 
 /** 一拍：与 compose 的 Beat 同形. */
@@ -492,7 +506,7 @@ function tableBeats(
             // 同一行的格子错开起笔（0.12s），不排队等：一行三格若串起来，
             // 每行要吃掉一秒多，五行就把整段旁白占满了
             t0: t0 + c * 0.12,
-            color: r === 0 ? PALETTE.primary : ctx.ink,
+            color: r === 0 ? rolesOf(ctx).primary : ctx.ink,
             idp: `${ctx.idp}t${r}_${c}`,
           });
           els.push(el);
@@ -552,7 +566,7 @@ function flowBeats(
           const a = drawEl(paths, {
             t0: at,
             dur: 0.26,
-            color: PALETTE.muted,
+            color: rolesOf(ctx).muted,
             seed: `${ctx.idp}fa${k}`,
           });
           els.push(a);
@@ -561,7 +575,7 @@ function flowBeats(
           if (lslot !== null && lslot !== undefined && e.label !== undefined) {
             const lt = slotText(e.label, lslot, {
               t0: at,
-              color: PALETTE.warn,
+              color: rolesOf(ctx).warn,
               idp: `${ctx.idp}fe${k}`,
               perChar: 0.05,
             });
@@ -572,7 +586,7 @@ function flowBeats(
         const shape = drawEl([geo.nodeShapes[i]!], {
           t0: at,
           dur: 0.42,
-          color: node.kind === "decision" ? PALETTE.warn : ctx.ink,
+          color: node.kind === "decision" ? rolesOf(ctx).warn : ctx.ink,
           seed: `${ctx.idp}fn${i}`,
         });
         const label = slotText(node.text, geo.nodeSlots[i]!, {
@@ -605,7 +619,7 @@ function flowBeats(
           const a = drawEl(paths, {
             t0: at,
             dur: 0.26,
-            color: PALETTE.muted,
+            color: rolesOf(ctx).muted,
             seed: `${ctx.idp}fz${k}`,
           });
           els.push(a);
@@ -616,7 +630,7 @@ function flowBeats(
           if (lslot !== null && lslot !== undefined && e.label !== undefined) {
             const lt = slotText(e.label, lslot, {
               t0: at,
-              color: PALETTE.warn,
+              color: rolesOf(ctx).warn,
               idp: `${ctx.idp}fy${k}`,
               perChar: 0.05,
             });
@@ -669,7 +683,7 @@ function mindMapBeats(
         const el = drawEl([geo.strokes[0]!], {
           t0,
           dur: 0.44,
-          color: PALETTE.primary,
+          color: rolesOf(ctx).primary,
           seed: `${ctx.idp}mc`,
           width: LINE_W.medium,
         });
@@ -692,7 +706,7 @@ function mindMapBeats(
         const arc = drawEl([curve], {
           t0,
           dur: 0.3,
-          color: PALETTE.muted,
+          color: rolesOf(ctx).muted,
           seed: `${ctx.idp}ma${i}`,
         });
         const bx = drawEl([shape], {
@@ -749,7 +763,7 @@ function iconsBeats(
         const a = drawEl([shaft, arrowHead(shaft, size * 0.16)], {
           t0: at,
           dur: 0.22,
-          color: PALETTE.primary,
+          color: rolesOf(ctx).primary,
           seed: `${ctx.idp}ia${i}`,
         });
         els.push(a);
@@ -809,7 +823,7 @@ function iconsColumnBeats(
         const a = drawEl([shaft, arrowHead(shaft, size * 0.16)], {
           t0: at,
           dur: 0.22,
-          color: PALETTE.primary,
+          color: rolesOf(ctx).primary,
           seed: `${ctx.idp}ia${i}`,
         });
         els.push(a);
@@ -883,7 +897,7 @@ function sceneBeats(
           gap: size * 0.06,
           t0,
           perChar: 0.07,
-          color: PALETTE.muted,
+          color: rolesOf(ctx).muted,
           idp: `${ctx.idp}scc`,
         });
         return { els: [el], end: el.t1 };
@@ -930,7 +944,7 @@ function noteBeats(
         const el = drawEl([path], {
           t0,
           dur: 0.8,
-          color: shape === "cloud" ? PALETTE.info : ctx.ink,
+          color: shape === "cloud" ? rolesOf(ctx).info : ctx.ink,
           seed: `${ctx.idp}nb`,
           width: LINE_W.medium,
         });

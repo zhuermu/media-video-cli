@@ -39,6 +39,7 @@ import { pieChart } from "./charts";
 import type { ChartBox } from "./charts";
 import { markerStrokesEl } from "./marker";
 import { PALETTE, seriesColor } from "./palette";
+import type { PaletteRoles } from "./palette";
 import { LINE_W } from "./strokes";
 
 /** 支持的图表种类（`bar` 纵向柱状、`pie` 饼图；其余按同一套模式后续填）. */
@@ -147,6 +148,13 @@ export interface ChartBlockCtx {
   /** 正文字号（刻度值/类目名以它为基准）. */
   bodySize: number;
   idp: string;
+  /** 语义色（亮/深两套，见 palette 的 `rolesFor`）；缺省是亮色板. */
+  roles?: PaletteRoles;
+}
+
+/** ctx 里的语义色（缺省 = 亮色板）. */
+function rolesOf(ctx: ChartBlockCtx): PaletteRoles {
+  return ctx.roles ?? PALETTE;
 }
 
 /** 一拍：与 compose 的 Beat 同形. */
@@ -233,7 +241,7 @@ function pieBeats(
             gap: labelSize * 0.06,
             t0: circle.t1,
             perChar: 0.03,
-            color: PALETTE.muted,
+            color: rolesOf(ctx).muted,
             idp: `${ctx.idp}pu`,
           });
           els.push(u);
@@ -290,7 +298,7 @@ function pieBeats(
         const lead = markerStrokesEl([[p0, p1, p2]], {
           t0: end,
           dur: 0.2,
-          color: PALETTE.muted,
+          color: rolesOf(ctx).muted,
           width: 1.8,
           seed: `${ctx.idp}pl${i}`,
           amp: 0.8,
@@ -394,7 +402,7 @@ function barBeats(
           {
             t0: at,
             dur: 0.16,
-            color: PALETTE.muted,
+            color: rolesOf(ctx).muted,
             width: 1.8,
             seed: `${ctx.idp}g${i}`,
             amp: 0.5,
@@ -411,7 +419,7 @@ function barBeats(
           gap: tickSize * 0.06,
           t0: at + 0.05,
           perChar: 0.02,
-          color: PALETTE.muted,
+          color: rolesOf(ctx).muted,
           idp: `${ctx.idp}tv${i}`,
         });
         els.push(grid, tv);
@@ -426,7 +434,7 @@ function barBeats(
           gap: tickSize * 0.06,
           t0: axisEl.t1,
           perChar: 0.03,
-          color: PALETTE.muted,
+          color: rolesOf(ctx).muted,
           idp: `${ctx.idp}u`,
         });
         els.push(u);

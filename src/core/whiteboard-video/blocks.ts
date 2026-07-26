@@ -25,7 +25,7 @@ import { PORTRAIT, contentW } from "./layout";
 import { circleAroundPath, keyUnderlinePath } from "./emphasis";
 import { parseInlineMarks } from "./inline-marks";
 import { markerStrokesEl } from "./marker";
-import { PALETTE, highlightOf } from "./palette";
+import { DARK_PALETTE, PALETTE, highlightOf } from "./palette";
 import { highlightEl } from "./strokes";
 
 /**
@@ -243,6 +243,14 @@ export interface BlockCtx {
   beat: number;
   /** 画幅与版式规格. Default {@link PORTRAIT}. */
   layout?: Layout;
+  /**
+   * 深色板面（见 board 的 `isDarkBackground`）。
+   *
+   * 荧光笔要按板面深浅换算：亮色板上它是"压暗一块"（半透明黄压在黑字上），
+   * 深色板上同样的值会把浅色字压成褐色——深板要的是"提亮一块"，色要更亮、
+   * 不透明度要更低。
+   */
+  dark?: boolean;
 }
 
 /** 取上下文的画幅（未指定则竖屏）. */
@@ -506,10 +514,14 @@ export function checklist(
       const my = o.y + i * o.lineHeight;
       const seed = `${o.idp}mk${i}_${k}`;
       if (mark.kind === "highlight") {
+        // 亮色板：半透明黄**压在字上**（真马克笔就是这样，压暗黑字更醒目）。
+        // 深色板：同样压上去会把浅色字压成褐色、对比度反而更低——改成画在
+        // **字的下方**（不覆盖字形），一条更实的亮黄粗线。
+        const darkBoard = ctx.dark === true;
         els.push(
           highlightEl(
             mx - o.size * 0.08,
-            my + o.size * 0.1,
+            darkBoard ? my + o.size * 0.94 : my + o.size * 0.1,
             mw + o.size * 0.16,
             {
               t0: t,
@@ -517,9 +529,10 @@ export function checklist(
               // 荧光笔用**黄色**（HIGHLIGHTS 的第 3 个）而不是第 1 个蓝：
               // 设计稿 §4/§13 的高亮都是黄的，而蓝色涂抹压在黑字上偏冷、
               // 又和标题下划线的蓝撞车，读起来像"这行被选中了"而不是"重点"。
-              color: highlightOf(2),
-              height: o.size * 1.02,
+              color: darkBoard ? DARK_PALETTE.warn : highlightOf(2),
+              height: darkBoard ? o.size * 0.24 : o.size * 1.02,
               seed,
+              ...(darkBoard ? { opacity: 0.6 } : {}),
             },
           ),
         );
@@ -541,7 +554,7 @@ export function checklist(
           {
             t0: t,
             dur: 0.52,
-            color: PALETTE.danger,
+            color: ctx.dark === true ? DARK_PALETTE.danger : PALETTE.danger,
             width: W.body,
             seed,
             amp: 2.4,

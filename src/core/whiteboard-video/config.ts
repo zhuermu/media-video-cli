@@ -22,9 +22,10 @@ import { basename, dirname, isAbsolute, join, resolve } from "node:path";
 import { ValidationError } from "@core/errors";
 
 import type { VideoKind } from "./article";
+import { isDarkBackground } from "./board";
 import type { BoardBackground } from "./board";
 import type { ArmMode, CursorKind } from "./hand";
-import { PALETTE } from "./palette";
+import { PALETTE, rolesFor } from "./palette";
 
 /** 素材库根目录（各库自带索引文件，见 assets/ASSETS.md）. */
 export interface AssetPaths {
@@ -92,6 +93,14 @@ export interface WhiteboardVideoRequest {
    * 那一大段。
    */
   previewSec?: number;
+  /**
+   * 片头封面定格秒数（`--cover-hold`），默认 2.5s。
+   *
+   * 2.5s 是「小窗里读完标题 + 看清主视觉」的下限，再长观众会以为片子卡住。
+   */
+  coverHoldSec: number;
+  /** 关掉片头封面（`--no-cover`）；文章里的 `> cover: off` 是另一个入口. */
+  noCover: boolean;
 }
 
 /** 调用方视角的可选项：只有 `articlePath` 必填. */
@@ -101,6 +110,9 @@ export interface WhiteboardVideoOptions extends Partial<
   articlePath: string;
   assets?: Partial<AssetPaths>;
 }
+
+/** 片头封面默认定格秒数. */
+export const DEFAULT_COVER_HOLD_SEC = 2.5;
 
 /** 仓库自带的素材根（`<repo>/assets`）. */
 export function repoAssetsRoot(): string {
@@ -128,8 +140,19 @@ export function articleSlug(articlePath: string): string {
  * 下划线、板块标签、流程箭头）都是蓝色，红色在六色板里专职表示"风险/错误"。
  * 用红色做通用强调，会让每一个标题下划线都自带一层警告意味。
  */
-const DEFAULT_INK = PALETTE.ink;
-const DEFAULT_ACCENT = PALETTE.primary;
+/**
+ * 默认墨色随板面深浅走。
+ *
+ * 深板 + 深墨等于把内容擦掉，所以这两个默认值不能是常量——`--ink` / `--accent`
+ * 显式给了才覆盖。
+ */
+export function themedInk(bg: BoardBackground): {
+  ink: string;
+  accent: string;
+} {
+  const roles = rolesFor(isDarkBackground(bg));
+  return { ink: roles.ink, accent: roles.primary };
+}
 /**
  * 默认手势 persona 换成 `matt`：它的手臂**更窄**（`matt-white-pencil` 宽高比 0.474，
  * suneeta 的马克笔是 0.635）。手宽 = 手臂高度 × 这个比例，而要让手臂伸出竖版
@@ -138,7 +161,14 @@ const DEFAULT_ACCENT = PALETTE.primary;
  */
 const DEFAULT_PERSONA = "matt";
 /** 默认背景：设计稿 §2 的纯白（纹理由调用方按题材选）. */
-const DEFAULT_BACKGROUND: BoardBackground = "plain";
+/**
+ * 默认板面：**深色网格板**。
+ *
+ * 不是风格选择。短视频平台把标题、时长、进度条、按钮用白字白线叠在画面上，
+ * 近白的板面会把这些 UI 整个吞掉——观众连"这条视频多长"都看不到。深板让平台
+ * UI 恢复可读，而白板是需要时显式要的（`> background: grid`）。
+ */
+const DEFAULT_BACKGROUND: BoardBackground = "dark-grid";
 
 /**
  * 补齐默认值并把相对路径转成绝对路径。
@@ -157,6 +187,10 @@ export function resolveRequest(
     p === undefined ? join(base, fallback) : isAbsolute(p) ? p : resolve(p);
   const defaults = defaultAssetPaths();
 
+  // 板面先定，墨色跟着它定（深板要浅墨）
+  const bg = opts.background ?? DEFAULT_BACKGROUND;
+  const inks = themedInk(bg);
+
   const request: WhiteboardVideoRequest = {
     articlePath,
     outDir: abs(opts.outDir, "out"),
@@ -170,12 +204,23 @@ export function resolveRequest(
     },
     persona: opts.persona ?? DEFAULT_PERSONA,
     cursor: opts.cursor ?? "hand",
-    ink: opts.ink ?? DEFAULT_INK,
-    accent: opts.accent ?? DEFAULT_ACCENT,
-    background: opts.background ?? DEFAULT_BACKGROUND,
+    ink: opts.ink ?? inks.ink,
+    accent: opts.accent ?? inks.accent,
+    background: bg,
     burnSubtitles: opts.burnSubtitles ?? true,
     fresh: opts.fresh ?? false,
+    coverHoldSec: opts.coverHoldSec ?? DEFAULT_COVER_HOLD_SEC,
+    noCover: opts.noCover ?? false,
   };
+  if (
+    !Number.isFinite(request.coverHoldSec) ||
+    request.coverHoldSec <= 0 ||
+    request.coverHoldSec > 10
+  ) {
+    throw new ValidationError(
+      `--cover-hold 需要 0–10 之间的秒数，得到 "${String(opts.coverHoldSec)}"`,
+    );
+  }
   if (opts.previewSec !== undefined) {
     if (!Number.isFinite(opts.previewSec) || opts.previewSec <= 0) {
       throw new ValidationError(

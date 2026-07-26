@@ -114,7 +114,14 @@ export const BOARD_PAPER: BoardStyle = {
  * 画面立刻显得"没做好"。纹理的正确强度是"注意不到，但拿掉会觉得空"。
  */
 export type BoardBackground =
-  "plain" | "grid" | "lined" | "cream" | "texture" | "dots";
+  | "plain"
+  | "grid"
+  | "lined"
+  | "cream"
+  | "texture"
+  | "dots"
+  | "dark"
+  | "dark-grid";
 
 export const BOARD_BACKGROUNDS: readonly BoardBackground[] = [
   "plain",
@@ -123,7 +130,23 @@ export const BOARD_BACKGROUNDS: readonly BoardBackground[] = [
   "cream",
   "texture",
   "dots",
+  "dark",
+  "dark-grid",
 ];
+
+/**
+ * 深色板面（`dark` / `dark-grid`）。
+ *
+ * 短视频平台把标题、时长、按钮用**白字**叠在画面上，近白的板面会把这些 UI
+ * 整个吞掉。深色板面是为了让平台 UI 可读，不是为了风格——所以它是默认值，
+ * 想要白板写 `> background: grid`。
+ *
+ * 深色一旦生效，墨色与语义色必须整套跟着换（见 palette 的 DARK_PALETTE）：
+ * 深底 + 深墨等于把内容擦掉。
+ */
+export function isDarkBackground(bg: BoardBackground): boolean {
+  return bg === "dark" || bg === "dark-grid";
+}
 
 export function isBoardBackground(v: string): v is BoardBackground {
   return (BOARD_BACKGROUNDS as readonly string[]).includes(v);
@@ -135,11 +158,30 @@ export function backgroundSurface(bg: BoardBackground): {
   surfaceEdge: string;
 } {
   if (bg === "cream") return { surface: "#FAF6EC", surfaceEdge: "#F2EBDA" };
+  // 深板不用纯黑：纯黑上浅墨的手写笔迹会有光晕感（抗锯齿的灰边在纯黑上最明显），
+  // 而且纯黑在 OLED 上与平台 UI 的黑色蒙层分不开。#1E232A 是"石墨板"。
+  if (isDarkBackground(bg)) {
+    return { surface: "#1E232A", surfaceEdge: "#161A20" };
+  }
   return { surface: "#FFFFFF", surfaceEdge: "#F4F6F7" };
+}
+
+/** 深板的框与光学层：铝框压暗，反光关掉（深板不该有日光灯反光）. */
+export function darkBoardStyle(base: BoardStyle): BoardStyle {
+  return {
+    ...base,
+    frame: "#39414B",
+    frameLight: "#4B545F",
+    frameDark: "#22272E",
+    glare: 0,
+    vignette: 0.2,
+  };
 }
 
 /** 纹理线色：冷灰蓝，比纯灰更像真实纸张的印刷格线. */
 const GRID_LINE = "#8FA3B8";
+/** 深板格线：冷灰白（深底上必须是浅线）. */
+const DARK_GRID_LINE = "#B8C6D6";
 
 /** 网格/点阵的格距（px，1080 宽下约 20 格）. */
 const GRID_STEP = 54;
@@ -160,6 +202,13 @@ export function backgroundDefs(bg: BoardBackground, id = "pocBg"): string {
   const p = (inner: string, step: number): string =>
     `<pattern id="${id}" patternUnits="userSpaceOnUse" width="${step}" height="${step}">${inner}</pattern>`;
   switch (bg) {
+    case "dark-grid":
+      // 深板的格线是**浅色**的（深线在深底上等于没画），不透明度压到 0.1：
+      // 浅线在深底上的视觉重量比深线在白底上大得多，同样的 0.16 会抢内容。
+      return p(
+        `<path d="M ${GRID_STEP} 0 L 0 0 0 ${GRID_STEP}" fill="none" stroke="${DARK_GRID_LINE}" stroke-width="1.4" opacity="0.1"/>`,
+        GRID_STEP,
+      );
     case "grid":
       return p(
         `<path d="M ${GRID_STEP} 0 L 0 0 0 ${GRID_STEP}" fill="none" stroke="${GRID_LINE}" stroke-width="1.4" opacity="0.16"/>`,
@@ -181,6 +230,7 @@ export function backgroundDefs(bg: BoardBackground, id = "pocBg"): string {
     }
     case "cream":
     case "plain":
+    case "dark":
       return "";
   }
 }
@@ -206,7 +256,8 @@ export function boardStyleFor(
   bg: BoardBackground,
   base: BoardStyle = BOARD_PAPER,
 ): BoardStyle {
-  return { ...base, ...backgroundSurface(bg) };
+  const styled = { ...base, ...backgroundSurface(bg) };
+  return isDarkBackground(bg) ? darkBoardStyle(styled) : styled;
 }
 
 /**

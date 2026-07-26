@@ -26,13 +26,18 @@ describe("loadGlyph", () => {
 });
 
 describe("measureHanziText", () => {
-  test("CJK 全宽、ASCII 窄于全宽、空串为 0", () => {
+  test("CJK 取手写字体步进、ASCII 窄于全宽、空串为 0", () => {
     expect(measureHanziText("", 100, 10)).toBe(0);
-    expect(measureHanziText("白", 100, 10)).toBe(100);
+    // CJK 宽度 = 手写字体的步进宽度（站酷快乐体 0.92 em），不再假定全宽。
+    // 只断言"落在全宽附近的合理区间"，不写死某支字体的具体数值——换字体
+    // 不该弄红这条测试，但字宽跑到全宽的一半或超出全宽都是真的坏了。
+    const cjk = measureHanziText("白", 100, 10);
+    expect(cjk).toBeGreaterThan(80);
+    expect(cjk).toBeLessThanOrEqual(100);
     const mixed = measureHanziText("白A", 100, 10);
     // A 的宽度：opentype 实测步进或因子回退，均应窄于全宽且为正
-    expect(mixed).toBeGreaterThan(100 + 10 + 20);
-    expect(mixed).toBeLessThan(100 + 10 + 100);
+    expect(mixed).toBeGreaterThan(cjk + 10 + 20);
+    expect(mixed).toBeLessThan(cjk + 10 + 100);
   });
 });
 

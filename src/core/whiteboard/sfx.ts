@@ -25,8 +25,24 @@ export const DEFAULT_SFX_MANIFEST_PATH = fileURLToPath(
   new URL("../../../assets/sfx/manifest.json", import.meta.url),
 );
 
-/** 引擎当前消费的音效挂钩（其余 id 为库存素材，供后续能力使用）. */
-export type SfxId = "writing" | "whoosh";
+/**
+ * 引擎消费的音效挂钩。
+ *
+ * 每一个都对应画面上一件**看得见**的事，声音只是它的听觉标记：
+ * writing = 笔在板上、whoosh = 镜头平移、ding = 打勾、pop = 图形块入场、
+ * page-turn = 收尾拉远看全景、sparkle = 强调标记（划掉 / 问号 / 圈出）。
+ * 清单里其余 id（bell / click / writing-alt-blackboard）是库存备选。
+ */
+export const SFX_HOOK_IDS = [
+  "writing",
+  "whoosh",
+  "ding",
+  "pop",
+  "page-turn",
+  "sparkle",
+] as const;
+
+export type SfxId = (typeof SFX_HOOK_IDS)[number];
 
 /** 一条入库音效（file 相对清单所在目录解析；id 任意非空，挂钩见 SfxId）. */
 export interface SfxEntry {
@@ -124,8 +140,8 @@ export async function loadSfxManifest(
         `音效文件不存在: ${entry.file}（清单 ${path} 的 "${entry.id}"）`,
       );
     }
-    if (entry.id === "writing" || entry.id === "whoosh") {
-      byId[entry.id] ??= entry;
+    if ((SFX_HOOK_IDS as readonly string[]).includes(entry.id)) {
+      byId[entry.id as SfxId] ??= entry;
     }
   }
   return { entries, byId };

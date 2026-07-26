@@ -19,16 +19,20 @@ import { basename, join } from "node:path";
 import { Resvg } from "@resvg/resvg-js";
 
 import { IoError, RenderError } from "../errors/index";
-import { DEFAULT_FPS, penPoseAt } from "../whiteboard/index";
+import { DEFAULT_FPS, cameraAt, penPoseAt } from "../whiteboard/index";
 import {
-  BOARD_PAPER,
+  BOARD_DESIGN,
+  backgroundDefs,
+  backgroundSvg,
   boardDefs,
   boardOverlaySvg,
+  boardStyleFor,
   boardSurfaceSvg,
 } from "./board";
+import type { BoardBackground } from "./board";
+import { cameraTransform, cellVisible, viewRect } from "./canvas";
 import { WIPE_SEC } from "./compose";
 import type { Storyboard } from "./compose";
-import { chromeSvg } from "./format";
 import type { FormatSpec } from "./format";
 import { activeHandCue } from "./gestures";
 import type { HandKit } from "./gestures";
@@ -51,6 +55,8 @@ export interface FrameSvgInput {
   accent: string;
   /** 字幕烧进帧里. */
   burnSubtitles: boolean;
+  /** 板面背景样式（设计稿 §2）. Default `"plain"`. */
+  background?: BoardBackground;
 }
 
 /**
@@ -62,6 +68,9 @@ export interface FrameSvgInput {
 export function frameSvgFactory(input: FrameSvgInput): (t: number) => string {
   const { storyboard, format, kit, title, ink, accent, burnSubtitles } = input;
   const L = format.layout;
+  const bg = input.background ?? "plain";
+  // 板面样式随背景派生（米白纸换底色），光学层沿用设计稿板面
+  const boardStyle = boardStyleFor(bg, BOARD_DESIGN);
   const subs = subtitleEl(storyboard.subtitles, {
     width: L.width,
     height: L.height,
@@ -69,50 +78,57 @@ export function frameSvgFactory(input: FrameSvgInput): (t: number) => string {
   const defs = storyboard.illustrations.map((il) => flatDefs(il)).join("");
 
   return function frameSvg(t: number): string {
+    // ── 镜头：一格填满一屏，段间平移，收尾拉远 ──
+    const pose = cameraAt(t, storyboard.camMoves);
+    const aspect = L.width / L.height;
+    const view = viewRect(pose, aspect);
+
     const parts: string[] = [
       `<svg xmlns="http://www.w3.org/2000/svg" width="${L.width}" height="${L.height}" viewBox="0 0 ${L.width} ${L.height}">`,
-      `<defs>${boardDefs(BOARD_PAPER)}</defs>`,
+      `<defs>${boardDefs(boardStyle)}${backgroundDefs(bg)}</defs>`,
       defs,
-      boardSurfaceSvg(0, 0, L.width, L.height),
+      // 画布层：内容与画板底色都在这一层，随镜头移动
+      `<g transform="${cameraTransform(pose, L.width, L.height)}">`,
+      boardSurfaceSvg(view.x, view.y, view.w, view.h),
+      backgroundSvg(bg, view.x, view.y, view.w, view.h),
     ];
 
     for (const p of storyboard.placed) {
       if (t < p.start) continue;
+      // 画面外的段落整段跳过：无限画布上讲过的都留着，全画一遍会让帧尺寸
+      // 随进度线性上涨，而看不见的部分一个像素都不贡献
+      if (!cellVisible(p.cell, pose, aspect)) continue;
       const body = p.els.map((el) => el.svg(t)).join("");
-      if (body === "") continue;
-      const mask = p.wipe?.wipeMask(t) ?? null;
-      // 擦除中/擦完：整段内容套遮罩（遮罩必须在生成时挂上，见 boardWipeEl）
-      parts.push(
-        mask === null
-          ? body
-          : `${mask.defs}<g mask="url(#${mask.id})">${body}</g>`,
-      );
-      if (format.chrome && (mask === null || t < (p.wipe?.t1 ?? Infinity))) {
-        parts.push(
-          chromeSvg(L, {
-            title,
-            index: p.index + 1,
-            total: storyboard.placed.length,
-            color: ink,
-            accent,
-          }),
-        );
-      }
+      if (body !== "") parts.push(body);
     }
 
-    // 帧装配规则：**手势优先**，否则回退到书写手跟着笔尖
+    // 段间连接箭头：横跨两格，不按格剔除（见 Storyboard.links 的注释）
+    for (const link of storyboard.links) {
+      const body = link.svg(t);
+      if (body !== "") parts.push(body);
+    }
+
+    // 帧装配规则：**手势优先**，否则回退到书写光标跟着笔尖
     const cue = activeHandCue(storyboard.elements, t);
     if (cue !== null) {
       parts.push(handCueSvg(cue));
     } else {
-      const pose = penPoseAt(t, storyboard.penElements, PEN_POSE_SAMPLE_FPS);
-      if (pose !== null && kit.write !== null) {
+      const pose2 = penPoseAt(t, storyboard.penElements, PEN_POSE_SAMPLE_FPS);
+      if (pose2 !== null && kit.write !== null) {
         parts.push(
-          handCueSvg({ rt: kit.write, x: pose.x, y: pose.y, lift: pose.lift }),
+          handCueSvg({
+            rt: kit.write,
+            x: pose2.x,
+            y: pose2.y,
+            lift: pose2.lift,
+          }),
         );
       }
     }
-    parts.push(boardOverlaySvg(0, 0, L.width, L.height, BOARD_PAPER));
+    parts.push(`</g>`);
+
+    // 屏幕固定层：画面边框与字幕不随镜头动
+    parts.push(boardOverlaySvg(0, 0, L.width, L.height, boardStyle));
     if (burnSubtitles) parts.push(subs.svg(t));
     parts.push(`</svg>`);
     return parts.join("\n");

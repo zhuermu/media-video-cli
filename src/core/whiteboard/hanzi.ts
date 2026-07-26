@@ -82,9 +82,23 @@ function charWidthFactor(ch: string): number {
   return 1; // CJK 及其他全宽
 }
 
-/** 字符实际宽度：CJK 全宽；其余优先 opentype 实测步进，缺字体回退因子表. */
+/**
+ * 字符实际宽度。
+ *
+ * 排版口径必须跟**画面上真正画出来的那个字形**一致。CJK 的字形来自手写字体
+ * （见 `hanziTextEl`：字形取自手写字体，中线取自楷体笔顺数据），所以宽度也要
+ * 用手写字体的步进宽度，而不是"CJK 一律全宽 = 字号"。
+ *
+ * 之前硬编码全宽，在霞鹜文楷下正好对（它的 CJK 步进就是 1.0 em），换成站酷
+ * 快乐体（0.92 em）后每个字凭空多出 8% 字号的空隙：整行字距偏松，而且因为
+ * 各字左右侧边距不同，松出来的量看起来忽大忽小，读作"字距不匀"。
+ *
+ * 手写字体缺字时才退回全宽——此时字形由楷体笔画轮廓兜底，全宽才是对的口径。
+ */
 function charWidth(ch: string, size: number): number {
   if (/\s/.test(ch)) return size * 0.4;
+  const hw = handwritingGlyphVector(ch, size);
+  if (hw !== null) return hw.advance;
   if (loadGlyph(ch) !== null) return size;
   const gv = glyphVector(ch, size);
   return gv !== null ? gv.advance : size * charWidthFactor(ch);

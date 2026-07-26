@@ -5,7 +5,7 @@
  * 模拟的"实测段时长"。正式管线里两者分别来自 script.json 与
  * durations.json。
  *
- * 运行（media-video-agent/ 下）：
+ * 运行（media-video-cli/ 下）：
  *   bun run experiments/whiteboard-demo/demo.ts            # 全片 → mp4
  *   bun run experiments/whiteboard-demo/demo.ts --stills   # 关键帧 PNG
  */

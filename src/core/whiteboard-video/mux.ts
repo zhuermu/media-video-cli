@@ -10,9 +10,10 @@
 import { writeFile } from "node:fs/promises";
 
 import { buildSfxMixArgs, hasSfxWork } from "../../adapters/ffmpeg/mix";
+import type { CueKind } from "../../adapters/ffmpeg/mix";
 import { RenderError } from "../errors/index";
 import { loadSfxManifest, mergeSpans } from "../whiteboard/index";
-import type { PenActiveSpan } from "../whiteboard/index";
+import type { PenActiveSpan, SfxId, SfxManifest } from "../whiteboard/index";
 import type { Storyboard } from "./compose";
 import type { Log } from "./log";
 import { silent } from "./log";
@@ -104,6 +105,33 @@ export function penActiveSpans(
   ).filter((s) => s.t1 - s.t0 >= PEN_SPAN_MIN_SEC);
 }
 
+/**
+ * 语义点位 + 清单 → 混音器的 cue 表。
+ *
+ * 缺素材的那一类静默跳过（音效是可降级的：纯口播也是完整成片），但**挂钩本身
+ * 在类型里列全**，所以新加一条素材只需要在这张表里加一行。
+ */
+function cueTable(
+  sfx: SfxManifest,
+  storyboard: Storyboard,
+  totalSec: number,
+): Partial<Record<CueKind, { file: string; times: number[] }>> {
+  const map: Array<[CueKind, SfxId, readonly number[]]> = [
+    ["ding", "ding", storyboard.sfxCues.ding],
+    ["pop", "pop", storyboard.sfxCues.pop],
+    ["page", "page-turn", storyboard.sfxCues.page],
+    ["sparkle", "sparkle", storyboard.sfxCues.sparkle],
+  ];
+  const out: Partial<Record<CueKind, { file: string; times: number[] }>> = {};
+  for (const [kind, id, times] of map) {
+    const entry = sfx.byId[id];
+    const within = times.filter((t) => t >= 0 && t < totalSec);
+    if (entry === undefined || within.length === 0) continue;
+    out[kind] = { file: entry.file, times: within };
+  }
+  return out;
+}
+
 export interface SfxMixOpts {
   narrationTrack: string;
   storyboard: Storyboard;
@@ -130,17 +158,29 @@ export async function mixSfx(opts: SfxMixOpts): Promise<string> {
     writingFile: sfx.byId.writing?.file,
     writingSpans: penActiveSpans(opts.storyboard, opts.totalSec),
     whooshFile: sfx.byId.whoosh?.file,
-    // 打在擦板起点：转场的听觉标记要和视觉动作同时发生
-    whooshTimes: opts.storyboard.placed
-      .filter((p) => p.wipe !== null)
-      .map((p) => p.wipe!.t0),
+    // 打在**每次运镜的起点**：转场的听觉标记要和视觉动作同时发生。
+    //
+    // 早先挂的是擦板起点（`p.wipe`），但无限画布把翻页式擦板换成了镜头平移，
+    // 于是 wipe 恒为 null——挂钩静默失效，整片一声 whoosh 都没有。运镜列表
+    // 同时覆盖段间平移和收尾拉远，正是需要声音标记的两处。
+    whooshTimes: opts.storyboard.camMoves
+      .map((m) => m.t0)
+      // 收尾拉远由 page-turn 标记，这里剔掉，否则两个音同时响
+      .filter(
+        (t) => t < opts.totalSec && !opts.storyboard.sfxCues.page.includes(t),
+      ),
+    // 其余点状音效：语义由 compose 声明（见 Storyboard.sfxCues），
+    // 这里只负责"有素材 + 有点位就混进去"
+    cues: cueTable(sfx, opts.storyboard, opts.totalSec),
     output: opts.output,
   };
   if (!hasSfxWork(job)) return opts.narrationTrack;
   await ffmpeg(buildSfxMixArgs(job), "音效混音");
   log(
-    `  混音：writing ${job.writingSpans.length} 段 / ` +
-      `whoosh ${job.whooshTimes.length} 点`,
+    `  混音：writing ${job.writingSpans.length} 段 / whoosh ${job.whooshTimes.length} 点` +
+      Object.entries(job.cues ?? {})
+        .map(([k, c]) => ` / ${k} ${c?.times.length ?? 0} 点`)
+        .join(""),
   );
   return opts.output;
 }

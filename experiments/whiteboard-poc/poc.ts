@@ -7,7 +7,7 @@
  *   3. 结构化版式（标题+双下划线 / 横向流程带 / 打勾清单 / 结论框）
  *   4. 白板马克笔贴图（替代 Apple Pencil）
  *
- * 运行（media-video-agent/ 下）：
+ * 运行（media-video-cli/ 下）：
  *   bun run experiments/whiteboard-poc/poc.ts            # 关键帧 PNG
  *   bun run experiments/whiteboard-poc/poc.ts --video    # 全片 mp4
  */

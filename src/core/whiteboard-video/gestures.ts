@@ -186,7 +186,20 @@ function toolOf(slug: string): { tool?: string; inkHex?: string } {
  * 与 hand.ts 的 `listHands` 的区别：那个只要"能写字的手"，会把 move-in /
  * eraser 全部过滤掉；这里要的正是它们。
  */
-export function listGestures(sparkolDir: string): GestureAsset[] {
+export interface ListGestureOpts {
+  /**
+   * 把 `pens` 组（只有笔、没有手）也列进来。
+   *
+   * 默认不列：它拿不出 erase/carry/point 三种手势，混进默认清单会让"挑不到
+   * 某个角色就退回全库"的逻辑给出一支笔去当橡皮。只有笔的模式才显式打开。
+   */
+  includePens?: boolean;
+}
+
+export function listGestures(
+  sparkolDir: string,
+  o: ListGestureOpts = {},
+): GestureAsset[] {
   const idxPath = join(sparkolDir, "hands-index.json");
   if (!existsSync(idxPath)) return [];
   let raw: RawHand[];
@@ -201,9 +214,8 @@ export function listGestures(sparkolDir: string): GestureAsset[] {
     const persona = h.group ?? "";
     // pens 组只有笔没有手（拿不出手势）；Seasonal 是万圣节骷髅手之类，
     // 混进正片会很突兀，要用得显式点名，不进默认清单
-    if (persona === "" || persona === "pens" || persona === "Seasonal") {
-      continue;
-    }
+    if (persona === "" || persona === "Seasonal") continue;
+    if (persona === "pens" && o.includePens !== true) continue;
     const role = classify(h.slug);
     if (role === null) continue;
     const key = `${persona}/${h.slug}`;
@@ -244,6 +256,8 @@ export interface LoadGestureOpts {
   armHeight?: number;
   /** 手臂怎么收尾. Default {@link DEFAULT_ARM_MODE}. */
   armMode?: ArmMode;
+  /** 只装书写光标，其余角色留空（只有笔的模式）. */
+  writeOnly?: boolean;
 }
 
 /** 装载一个手势素材（按手臂高度归一，见模块注释）. */
@@ -375,6 +389,10 @@ export function loadHandKit(
   o: LoadGestureOpts,
 ): HandKit {
   const get = (role: GestureRole): GestureRuntime | null => {
+    // 只有笔的模式：除了书写光标，其余角色一律留空。
+    // 不能让它们走 pickGesture 的"退回全库"——那会给擦除/搬运配上别人的手，
+    // 一条片子里既有笔又有手，比没有手势更奇怪。
+    if (o.writeOnly === true && role !== "write") return null;
     const a = pickGesture(assets, { persona, role, ink });
     return a === null ? null : loadGesture(a, o);
   };

@@ -17,7 +17,10 @@ import {
   AFTER_WIPE,
   FINAL_TAIL,
   HOLD_BEFORE_WIPE,
-  WIPE_SEC,
+  AFTER_PAN,
+  OVERVIEW_HOLD,
+  PAN_SEC,
+  ZOOM_OUT_SEC,
   beatTargets,
   composeStoryboard,
   shiftEl,
@@ -71,6 +74,8 @@ function article(sections: Section[]): Article {
     sections,
     cast: { 旁白: "narrator-male-lively" },
     kind: "short",
+    castAuthored: false,
+    signature: true,
   };
 }
 
@@ -171,9 +176,9 @@ describe("composeStoryboard 排片", () => {
     });
     const first = sb.placed[0]!;
     expect(first.start).toBe(0);
-    // 段时长 = 配音 + 收板停顿 + 擦板 + 擦后间隔
+    // 段时长 = 配音 + 收板停顿 + 段间平移 + 平移后间隔（无限画布不再擦板）
     expect(first.end).toBeCloseTo(
-      48 + HOLD_BEFORE_WIPE + WIPE_SEC + AFTER_WIPE,
+      48 + HOLD_BEFORE_WIPE + PAN_SEC + AFTER_PAN,
       5,
     );
   });
@@ -186,10 +191,10 @@ describe("composeStoryboard 排片", () => {
       spoken: [spoken(1, 2), spoken(1, 2)], // 只有 2s 旁白
     });
     const first = sb.placed[0]!;
-    expect(first.end).toBeGreaterThan(2 + HOLD_BEFORE_WIPE + WIPE_SEC);
+    expect(first.end).toBeGreaterThan(2 + HOLD_BEFORE_WIPE + PAN_SEC);
   });
 
-  test("末段不擦板，收尾只留 FINAL_TAIL", () => {
+  test("无限画布：任何一段都不擦板，末段之后接拉远全景", () => {
     const a = article([section("一", ["x"]), section("二", ["y"])]);
     const sb = composeStoryboard({
       ...base,
@@ -197,22 +202,53 @@ describe("composeStoryboard 排片", () => {
       spoken: [spoken(4, 5), spoken(4, 5)],
     });
     const last = sb.placed[1]!;
-    expect(last.wipe).toBeNull();
-    expect(sb.placed[0]!.wipe).not.toBeNull();
+    // 讲过的内容留在板上，所以没有任何一段带擦板元素
+    for (const p of sb.placed) expect(p.wipe).toBeNull();
     expect(last.end - last.start).toBeCloseTo(20 + FINAL_TAIL, 5);
-    expect(sb.totalSec).toBeCloseTo(last.end, 5);
+    // 全片在末段之后还要留出拉远 + 全景停留
+    expect(sb.totalSec).toBeCloseTo(last.end + ZOOM_OUT_SEC + OVERVIEW_HOLD, 5);
   });
 
-  test("擦板落在板面收完之后，而不是段末", () => {
+  test("段间平移落在板面收完之后，而不是段末", () => {
     const a = article([section("一", ["x"]), section("二", ["y"])]);
     const sb = composeStoryboard({
       ...base,
       article: a,
       spoken: [spoken(4, 5), spoken(4, 5)],
     });
-    const p = sb.placed[0]!;
-    expect(p.wipe!.t0).toBeCloseTo(20 + HOLD_BEFORE_WIPE, 5);
-    expect(p.wipe!.t0).toBeLessThan(p.end);
+    // 第一次平移（camMoves[0]）应当从"板面收完 + 停顿"起算，且落在第一段内
+    const pan = sb.camMoves[0]!;
+    expect(pan.t0).toBeCloseTo(20 + HOLD_BEFORE_WIPE, 5);
+    expect(pan.t0).toBeLessThan(sb.placed[0]!.end);
+    expect(pan.t1 - pan.t0).toBeCloseTo(PAN_SEC, 5);
+  });
+
+  test("每段在画布上各占一格，格子互不重叠", () => {
+    const a = article([section("一", ["x"]), section("二", ["y"])]);
+    const sb = composeStoryboard({
+      ...base,
+      article: a,
+      spoken: [spoken(4, 5), spoken(4, 5)],
+    });
+    expect(sb.cells).toHaveLength(2);
+    const [c0, c1] = sb.cells as [(typeof sb.cells)[0], (typeof sb.cells)[0]];
+    const overlap =
+      c0.x < c1.x + c1.w &&
+      c0.x + c0.w > c1.x &&
+      c0.y < c1.y + c1.h &&
+      c0.y + c0.h > c1.y;
+    expect(overlap).toBe(false);
+  });
+
+  test("收尾一定有一次拉远（视野变大）", () => {
+    const a = article([section("一", ["x"]), section("二", ["y"])]);
+    const sb = composeStoryboard({
+      ...base,
+      article: a,
+      spoken: [spoken(4, 5), spoken(4, 5)],
+    });
+    const zoom = sb.camMoves[sb.camMoves.length - 1]!;
+    expect(zoom.to[2]).toBeGreaterThan(zoom.from[2]);
   });
 
   test("每段的元素都被平移到该段起点之后", () => {
@@ -254,6 +290,81 @@ describe("composeStoryboard 排片", () => {
     });
     expect(sb.illustrations).toHaveLength(0);
     expect(sb.placed).toHaveLength(1);
+  });
+});
+
+describe("收尾署名", () => {
+  const format = resolveFormat("short", 30);
+  const base = {
+    format,
+    kit: NO_HANDS,
+    ink: "#222",
+    accent: "#c00",
+    illustrationsDir: "/nonexistent",
+  };
+  const persona = {
+    penName: "二木",
+    bio: "简介",
+    career: ["c"],
+    topics: ["LLM"],
+    tone: ["t"],
+    keepEnglish: ["prompt"],
+    avoid: ["财经"],
+    cta: ["关注二木 · 聊大模型落地"],
+    signature: "二木",
+    defaultVoice: "narrator-male-steady",
+  };
+  const two = [section("一", ["x"]), section("二", ["y"])];
+
+  test("给了人设：拉远之后写签名 + CTA，并落一个 sparkle 点位", () => {
+    const withSig = composeStoryboard({
+      ...base,
+      article: article(two),
+      spoken: [spoken(2, 3), spoken(2, 3)],
+      persona,
+    });
+    const withoutSig = composeStoryboard({
+      ...base,
+      article: article(two),
+      spoken: [spoken(2, 3), spoken(2, 3)],
+    });
+    // 签名挂在 links（画布空间、不参与按格剔除），所以比不署名时多两件
+    expect(withSig.links.length).toBe(withoutSig.links.length + 2);
+    expect(withSig.sfxCues.sparkle.length).toBe(
+      withoutSig.sfxCues.sparkle.length + 1,
+    );
+  });
+
+  test("落笔在拉远窗口之内，写完之前不结束成片", () => {
+    const sb = composeStoryboard({
+      ...base,
+      article: article(two),
+      spoken: [spoken(2, 3), spoken(2, 3)],
+      persona,
+    });
+    const zoomOut = sb.camMoves[sb.camMoves.length - 1]!;
+    const startAt = sb.sfxCues.sparkle[sb.sfxCues.sparkle.length - 1]!;
+    expect(startAt).toBeGreaterThanOrEqual(zoomOut.t0);
+    expect(startAt).toBeLessThanOrEqual(zoomOut.t1);
+    // 成片结尾必须晚于最后一笔（早先按全景停留时长收尾，CTA 被截掉半句）
+    const lastInk = Math.max(...sb.links.map((el) => el.t1));
+    expect(sb.totalSec).toBeGreaterThan(lastInk);
+  });
+
+  test("> signature: off 时不画；没人设时也不画", () => {
+    const off = composeStoryboard({
+      ...base,
+      article: { ...article(two), signature: false },
+      spoken: [spoken(2, 3), spoken(2, 3)],
+      persona,
+    });
+    const noPersona = composeStoryboard({
+      ...base,
+      article: article(two),
+      spoken: [spoken(2, 3), spoken(2, 3)],
+    });
+    expect(off.links.length).toBe(noPersona.links.length);
+    expect(off.sfxCues.sparkle.length).toBe(noPersona.sfxCues.sparkle.length);
   });
 });
 
@@ -311,9 +422,8 @@ describe("关键帧快照", () => {
     expect(resolveFormat("short", 12).chrome).toBe(false);
   });
 
-  test("长横版带页眉，且页眉里的进度是 1 / N", () => {
+  test("横版帧是 1920×1080，画布层带镜头变换，且不再有翻页式页眉", () => {
     const long = resolveFormat("long", 400);
-    expect(long.chrome).toBe(true);
     const twoSec = article([section("甲", ["1"]), section("乙", ["2"])]);
     const lsb = composeStoryboard({
       article: twoSec,
@@ -334,7 +444,10 @@ describe("关键帧快照", () => {
       burnSubtitles: false,
     })(1);
     expect(svg).toContain('width="1920" height="1080"');
-    // 页眉走矢量路径（帧渲染器不装系统字体，<text> 会渲成空白）
+    // 一切文字走矢量路径（帧渲染器不装系统字体，<text> 会渲成空白）
     expect(svg).not.toContain("<text");
+    // 内容在画布层里，带镜头变换——这是无限画布与"一页一屏"的分界
+    expect(svg).toContain('<g transform="translate(');
+    expect(svg).toContain("scale(");
   });
 });

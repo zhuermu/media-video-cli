@@ -7,6 +7,7 @@ import { describe, expect, test } from "bun:test";
 import { ValidationError } from "@core/errors";
 
 import {
+  CUE_VOLUME,
   buildSfxMixArgs,
   hasSfxWork,
   SFX_EVENTS_MAX,
@@ -56,7 +57,7 @@ describe("buildSfxMixArgs", () => {
     );
     expect(graph).toContain(`adelay=5000|5000`);
     // whoosh：输入 2、adelay 4200
-    expect(graph).toContain("[2:a]asplit=1[x0]");
+    expect(graph).toContain("[2:a]asplit=1[c0_0]");
     expect(graph).toContain(`adelay=4200|4200,volume=${WHOOSH_VOLUME}`);
     // 时长锚：口播为 first，normalize=0
     expect(graph).toContain("amix=inputs=4:duration=first:normalize=0[mix]");
@@ -69,7 +70,7 @@ describe("buildSfxMixArgs", () => {
     const argv = buildSfxMixArgs({ ...base, whooshFile: "/x.wav" });
     expect(argv).not.toContain("-stream_loop");
     const graph = argv[argv.indexOf("-filter_complex") + 1]!;
-    expect(graph).toContain("[1:a]asplit=1[x0]");
+    expect(graph).toContain("[1:a]asplit=1[c0_0]");
     expect(graph).toContain("amix=inputs=2:duration=first:normalize=0[mix]");
   });
 
@@ -100,5 +101,45 @@ describe("buildSfxMixArgs", () => {
         writingSpans: [{ t0: 2, t1: 1 }],
       }),
     ).toThrow("区间非法");
+  });
+});
+
+describe("buildSfxMixArgs cues", () => {
+  test("多类点状音效各占一个输入，音量按类目取", () => {
+    const argv = buildSfxMixArgs({
+      ...base,
+      whooshFile: "/x.wav",
+      cues: {
+        ding: { file: "/d.wav", times: [1, 2] },
+        page: { file: "/p.wav", times: [9] },
+      },
+    });
+    // 输入：0 口播 + 1 whoosh + 2 ding + 3 page（无 writing 文件）
+    expect(argv.filter((a) => a === "-i")).toHaveLength(4);
+    const graph = argv[argv.indexOf("-filter_complex") + 1]!;
+    expect(graph).toContain("[2:a]asplit=2[c1_0][c1_1]");
+    expect(graph).toContain(`volume=${CUE_VOLUME.ding}`);
+    expect(graph).toContain(`volume=${CUE_VOLUME.page}`);
+    expect(graph).toContain("amix=inputs=5:duration=first:normalize=0[mix]");
+  });
+
+  test("缺点位的类目不占输入；超上限报错点名类目", () => {
+    const argv = buildSfxMixArgs({
+      ...base,
+      whooshFile: "/x.wav",
+      cues: { ding: { file: "/d.wav", times: [] } },
+    });
+    expect(argv.filter((a) => a === "-i")).toHaveLength(2);
+    expect(() =>
+      buildSfxMixArgs({
+        ...base,
+        cues: {
+          pop: {
+            file: "/p.wav",
+            times: Array.from({ length: SFX_EVENTS_MAX + 1 }, (_, i) => i),
+          },
+        },
+      }),
+    ).toThrow("pop");
   });
 });

@@ -2,14 +2,66 @@
   "_readme": [
     "手写字体清单（C12 素材可追溯）。字体二进制不入 git（.gitignore），",
     "按 source 重新下载放回本目录即可；缺字体时白板渲染自动回退楷体笔画轮廓。",
-    "白板渲染取本目录字典序第一个可解析的 .ttf/.otf。"
+    "",
+    "选取规则（设计稿 2.0 §11 的中英配对）：",
+    "1. CJK 字形取 entries 里第一个可解析、且未声明 scripts 的条目（= 主字体）；",
+    "2. 拉丁字形取第一个 scripts 含 \"latin\" 的条目（= 配对英文手写体）；",
+    "3. 拉丁字体缺该字形时回落主字体（Patrick Hand 只有 728 字形，缺 → 等符号）。",
+    "要换主字体就把它挪到 entries 首位；要换英文字体就调整 latin 条目的顺序。",
+    "",
+    "scripts 字段必须由人确认后写入，代码不做嗅探：靠字形数量猜\"这是拉丁字体\"",
+    "会把 CJK 覆盖不全的中文字体误判成拉丁字体，导致全片中文掉回楷体轮廓。"
   ],
   "entries": [
     {
+      "file": "ZCOOLKuaiLe-Regular.ttf",
+      "name": "站酷快乐体（ZCOOL KuaiLe）",
+      "source": "https://github.com/google/fonts/tree/main/ofl/zcoolkuaile",
+      "license": "SIL Open Font License 1.1",
+      "note": "设计稿 §11 中文首选（主字体）。7055 字形，覆盖常用简体；生僻字缺字时回退楷体笔画轮廓"
+    },
+    {
+      "file": "PatrickHand-Regular.ttf",
+      "name": "Patrick Hand",
+      "scripts": ["latin"],
+      "source": "https://github.com/google/fonts/tree/main/ofl/patrickhand",
+      "license": "SIL Open Font License 1.1",
+      "note": "设计稿 §11 英文首选（当前生效的拉丁配对）。728 字形，无 CJK"
+    },
+    {
+      "file": "Kalam-Regular.ttf",
+      "name": "Kalam",
+      "scripts": ["latin"],
+      "source": "https://github.com/google/fonts/tree/main/ofl/kalam",
+      "license": "SIL Open Font License 1.1",
+      "note": "设计稿 §11 英文备选。1027 字形，无 CJK"
+    },
+    {
+      "file": "Caveat-Variable.ttf",
+      "name": "Caveat",
+      "scripts": ["latin"],
+      "source": "https://github.com/google/fonts/tree/main/ofl/caveat",
+      "license": "SIL Open Font License 1.1",
+      "note": "设计稿 §11 英文备选（可变字体，按默认实例取字形）。1034 字形，无 CJK"
+    },
+    {
+      "file": "IndieFlower-Regular.ttf",
+      "name": "Indie Flower",
+      "scripts": ["latin"],
+      "source": "https://github.com/google/fonts/tree/main/ofl/indieflower",
+      "license": "SIL Open Font License 1.1",
+      "note": "设计稿 §11 英文备选。569 字形，无 CJK"
+    },
+    {
       "file": "LXGWWenKai-Regular.ttf",
       "name": "LXGW WenKai（霞鹜文楷）",
-      "source": "https://github.com/lxgw/LxgwWenKai（经 cdn.jsdelivr.net/gh/lxgw/LxgwWenKai@latest/fonts/TTF/ 下载）",
-      "license": "SIL Open Font License 1.1"
+      "source": "https://github.com/lxgw/LxgwWenKai",
+      "license": "SIL Open Font License 1.1",
+      "note": "兜底字体（楷体风格，与设计稿不同）。28278 字形，覆盖面最广；仅在站酷快乐体缺失时启用"
     }
-  ]
+  ],
+  "_not_bundled": {
+    "note": "设计稿 §11 还推荐了三支中文字体，本仓库未收录——它们不在 Google Fonts（OFL）体系内，权威下载源为各自官网/第三方站点，授权条款需逐个人工确认后再入库（项目硬红线：素材授权必须可追溯）。需要时由人确认来源与授权再补。",
+    "fonts": ["庞门正道粗书体", "江西拙楷", "阿里巴巴普惠体"]
+  }
 }

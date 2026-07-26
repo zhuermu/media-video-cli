@@ -5,7 +5,7 @@
  * 不是渲染，而是「素材是可逐笔绘制的线稿」。若任意第三方描边 SVG 都能进
  * 我们的笔描管线，素材库就不再是瓶颈。
  *
- * 运行（media-video-agent/ 下）：
+ * 运行（media-video-cli/ 下）：
  *   bun run experiments/whiteboard-poc/import-demo.ts
  */
 

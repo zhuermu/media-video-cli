@@ -41,6 +41,14 @@
 import { existsSync, readFileSync, readdirSync, statSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 
+import { ValidationError } from "../errors/index";
+import { isBoardBlockKind, parseBoardBlock } from "./board-block";
+import type { BoardSpec } from "./board-block";
+import { isBoardBackground } from "./board";
+import type { BoardBackground } from "./board";
+import { parseChartBlock } from "./chart-block";
+import { hasInlineMarks, parseInlineMarks } from "./inline-marks";
+import type { ChartSpec } from "./chart-block";
 import type { Cue } from "./narrate";
 import type { Emotion } from "./voices";
 import { CAST_PRESETS } from "./voices";
@@ -62,6 +70,10 @@ export interface Section {
   image?: string;
   /** 素材库检索词（英文）；无则该段不配插画. */
   illustration?: string[];
+  /** 板上画的图表（```chart``` 块）；无则该段不配图表. */
+  chart?: ChartSpec;
+  /** 板上画的图形块（```table``` / ```flow``` / … ）；无则该段不配. */
+  board?: BoardSpec;
 }
 
 export interface Article {
@@ -70,7 +82,23 @@ export interface Article {
   sections: Section[];
   /** 角色名 → 音色库 id. */
   cast: Record<string, string>;
+  /**
+   * 文章里是否**显式**写了 `> cast:`。
+   *
+   * 需要这个布尔，是因为"没写 cast"和"写了 solo 预设"在补完默认值之后长得一样，
+   * 而人设的默认音色只该覆盖前者：作者显式选了音色就不该被人设改掉。
+   */
+  castAuthored: boolean;
   kind: VideoKind;
+  /** 板面底纹（`> background:`）；未写则由 config 的默认值决定. */
+  background?: BoardBackground;
+  /**
+   * 收尾要不要手写作者签名与关注引导（`> signature: on|off`），默认 on。
+   *
+   * 默认开是有意的：署名是这条流水线的常态，"这条片子不署名"才是例外。缺人设
+   * 文件时 compose 自己会跳过，所以默认开不会在没配人设的仓库里报错。
+   */
+  signature: boolean;
 }
 
 /** 单人片的默认角色名（脚本里不写角色名时归到它）. */
@@ -128,18 +156,110 @@ function parseCast(value: string): Record<string, string> {
  * @param path Markdown 文件路径（图片路径相对它所在目录解析）
  * @throws Error 文章里没有 `##` 分镜
  */
+/**
+ * 占用这一段的**媒体位**，已被占则报错。
+ *
+ * 一段只有一个媒体位（图片 / 插画 / 图表 / 板书块共用），因为版式只给了一个：
+ * 两个媒体挤进去要么互相压住，要么把要点挤出画幅。这里当场报错而不是自动挪到
+ * 下一段——作者的意图是"这两样都在这一段"，静默重排会让成片和文章不对应。
+ */
+function claimMedia(s: Section, what: string): void {
+  const held =
+    s.chart !== undefined
+      ? "图表"
+      : s.board !== undefined
+        ? "板书块"
+        : s.image !== undefined
+          ? "图片"
+          : s.illustration !== undefined
+            ? "插画"
+            : null;
+  if (held !== null) {
+    throw new ValidationError(
+      `段「${s.title}」已经有${held}，${what}放不下了——一段只有一个媒体位，请拆成两段`,
+    );
+  }
+}
+
 export function parseArticle(path: string): Article {
   const baseDir = dirname(resolve(path));
   const lines = readFileSync(path, "utf8").split(/\r?\n/);
 
   let title = "";
   let cast: Record<string, string> = {};
+  let castAuthored = false;
   let kind: VideoKind = "auto";
+  let background: BoardBackground | undefined;
+  let signature = true;
   const sections: Section[] = [];
   let cur: Section | null = null;
+  /** 当前正在收集的围栏代码块（null = 不在块内）. */
+  let fence: { info: string; body: string[] } | null = null;
 
   for (const raw of lines) {
     const line = raw.trim();
+
+    // —— 围栏代码块：必须在所有其他规则之前处理 ——
+    //
+    // 否则块里的内容会被逐行当成普通段落，也就是**当成口播台词念出来**。
+    if (fence !== null) {
+      if (/^```/.test(line)) {
+        const info = fence.info;
+        const body = fence.body.join("\n");
+        fence = null;
+        if (/^chart\b/.test(info)) {
+          if (cur === null) {
+            throw new ValidationError(
+              "```chart``` 块出现在第一个 `## 分镜` 之前，不知道该画在哪一段",
+            );
+          }
+          claimMedia(cur, "图表");
+          try {
+            cur.chart = parseChartBlock(info, body);
+          } catch (cause) {
+            // 补上段落上下文：光说"数据行读不懂"，作者还得自己找是哪一段
+            const msg = cause instanceof Error ? cause.message : String(cause);
+            throw new ValidationError(
+              `段「${cur.title}」的图表块有问题：${msg}`,
+              {
+                cause,
+              },
+            );
+          }
+        } else if (isBoardBlockKind(info.split(/\s+/)[0] ?? "")) {
+          if (cur === null) {
+            throw new ValidationError(
+              `\`\`\`${info}\`\`\` 块出现在第一个 \`## 分镜\` 之前，不知道该画在哪一段`,
+            );
+          }
+          claimMedia(cur, `板书块 ${info.split(/\s+/)[0]}`);
+          try {
+            cur.board = parseBoardBlock(info, body);
+          } catch (cause) {
+            const msg = cause instanceof Error ? cause.message : String(cause);
+            throw new ValidationError(
+              `段「${cur.title}」的 \`\`\`${info}\`\`\` 块有问题：${msg}`,
+              { cause },
+            );
+          }
+        } else {
+          // 非图表围栏（```js 之类）：跳过内容，但要说出来。
+          // 静默丢内容和把代码念出来一样糟，两者之间选"跳过 + 明确告知"。
+          console.error(
+            `⚠ 段「${cur?.title ?? "?"}」里的 \`\`\`${info || "(无语言)"}\`\`\` 代码块已跳过（白板视频不朗读代码块）`,
+          );
+        }
+        continue;
+      }
+      fence.body.push(raw);
+      continue;
+    }
+    const fenceOpen = /^```\s*(.*)$/.exec(line);
+    if (fenceOpen !== null) {
+      fence = { info: fenceOpen[1]!.trim(), body: [] };
+      continue;
+    }
+
     if (line === "") continue;
 
     // 片级指令（必须在第一个 ## 之前）
@@ -147,12 +267,28 @@ export function parseArticle(path: string): Article {
     if (directive !== null) {
       const k = directive[1]!.toLowerCase();
       const v = directive[2]!.trim();
-      if (k === "cast") cast = parseCast(v);
-      else if (
+      if (k === "cast") {
+        cast = parseCast(v);
+        castAuthored = true;
+      } else if (
         k === "format" &&
         (v === "short" || v === "long" || v === "auto")
       ) {
         kind = v;
+      } else if (k === "background") {
+        // 未知底纹当场报错：写错一个词就静默回到纯白，作者会以为指令没生效
+        if (!isBoardBackground(v)) {
+          throw new ValidationError(
+            `底纹 "${v}" 不支持；可用：plain | grid | lined | cream | texture | dots`,
+          );
+        }
+        background = v;
+      } else if (k === "signature") {
+        // 和底纹同样的道理：写错一个词就静默不署名，作者不会发现
+        if (v !== "on" && v !== "off") {
+          throw new ValidationError(`signature 只接受 on | off，得到 "${v}"`);
+        }
+        signature = v === "on";
       }
       continue;
     }
@@ -172,7 +308,21 @@ export function parseArticle(path: string): Article {
 
     const bullet = /^[-*]\s+(.*)$/.exec(line);
     if (bullet !== null) {
-      cur.bullets.push(bullet[1]!.trim());
+      const text = bullet[1]!.trim();
+      // 行内标记在这里就校验一遍（渲染层还会解析一次）：未闭合/嵌套的标记若拖到
+      // 渲染期才报，错误信息里没有段落名，作者得自己找是哪一行。
+      if (hasInlineMarks(text)) {
+        try {
+          parseInlineMarks(text);
+        } catch (cause) {
+          const msg = cause instanceof Error ? cause.message : String(cause);
+          throw new ValidationError(
+            `段「${cur.title}」的要点行内标记有问题：${msg}`,
+            { cause },
+          );
+        }
+      }
+      cur.bullets.push(text);
       continue;
     }
     const strike = /^~~(.+)~~$/.exec(line);
@@ -182,6 +332,7 @@ export function parseArticle(path: string): Article {
     }
     const img = /^!\[[^\]]*\]\(([^)]+)\)$/.exec(line);
     if (img !== null) {
+      claimMedia(cur, "图片/插画");
       const p = img[1]!.trim();
       if (p.startsWith("il:")) {
         cur.illustration = p
@@ -241,5 +392,7 @@ export function parseArticle(path: string): Article {
   if (cast[DEFAULT_SPEAKER] === undefined) {
     cast = { ...CAST_PRESETS["solo"], ...cast };
   }
-  return { title, sections, cast, kind };
+  return background === undefined
+    ? { title, sections, cast, castAuthored, kind, signature }
+    : { title, sections, cast, castAuthored, kind, background, signature };
 }

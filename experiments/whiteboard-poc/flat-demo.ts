@@ -7,7 +7,7 @@
  *   flat-sweep   软边遮罩横扫 + 马克笔跟着边缘走（最"白板手绘"）
  *   flat-scene   实战构图：手写标题 + 插画 + 手写要点
  *
- * 运行（media-video-agent/ 下）：
+ * 运行（media-video-cli/ 下）：
  *   bun run experiments/whiteboard-poc/flat-demo.ts
  */
 

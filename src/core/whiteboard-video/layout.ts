@@ -53,6 +53,39 @@ export function contentH(l: Layout): number {
   return l.height - l.marginTop - l.marginBottom;
 }
 
+/**
+ * 一格的高度占画幅高度的比例（无限画布的行间距，见 compose 的 `serpentineCells`）。
+ *
+ * 小于 1 是故意的：镜头视野因此比格子高，上下行的笔迹会从画面边缘露出一角，
+ * 观感是"同一块画布被拖动"而不是翻页。代价写在 {@link contentBottom}——镜头把
+ * 一格居中放进画幅，段内容因此整体下移 (1-ratio)/2 个画幅高。
+ */
+export const CELL_H_RATIO = 0.78;
+
+/**
+ * 内容可以画到的**最低点**：底部安全边距与**字幕带顶边**取更靠上的那个。
+ *
+ * `marginBottom` 只管平台 UI，管不到字幕——字幕带由 `subtitleEl` 自己定位
+ * （底边 12% 画高，白底板 + 一行字），横版算下来带顶在 888px，而
+ * `height - marginBottom` 是 988px。差出的这 100px 正好是"流程图最后一个节点
+ * 被字幕压住"的宽度，只有把两者一起算才不会出现。
+ */
+export function contentBottom(l: Layout): number {
+  const scale = Math.min(l.width, l.height) / 1080;
+  // 与 subtitleEl 的默认取值保持一致：底边 12% 画高，字号 46×scale，白底板上下各
+  // 留 0.34 字高。注意那里的 y 是**基线**（baseY - size），字形还要往上占一个字高，
+  // 所以带顶要减 2.34 个字号而不是 1.34——差出的这一个字号正好是"最后一个节点被
+  // 字幕压住"的量。
+  const bandTop = l.height * 0.88 - 46 * scale * 2.34;
+  // 段坐标是**格子局部坐标**，而镜头把格子居中放进画幅：局部 y 落在画幅
+  // y + (1-CELL_H_RATIO)/2 × 画幅高 处。字幕带是画幅坐标里的东西，换算回局部
+  // 要把这段位移减掉，否则算出来的"安全底"比实际低了一个格边（横版 119px），
+  // 正好是最后一个节点被字幕压住的量。
+  const cellH = l.height * CELL_H_RATIO;
+  const camShift = (l.height - cellH) / 2;
+  return Math.min(cellH - l.marginBottom * 0.5, bandTop - camShift);
+}
+
 /** 左栏（横屏）或整栏（竖屏）的 x 起点与宽度. */
 export function leftCol(l: Layout): { x: number; w: number } {
   if (l.columns === 1) return { x: l.marginX, w: contentW(l) };
@@ -77,11 +110,14 @@ export const PORTRAIT: Layout = {
   columns: 1,
   leftColRatio: 1,
   type: {
-    title: 118,
+    // 标题刻意**不大**：讲解视频的主体是图，标题只是"这一块讲什么"的标签。
+    // 早先竖版 118px 的标题占掉一屏宽度的 80%，画面读起来是"大标题 + 一点内容"，
+    // 而参考的 scribe 风格里标题只是手写的一行小字，视线立刻落到图上。
+    title: 76,
     subtitle: 44,
-    body: 56,
-    label: 46,
-    titlePerChar: 0.46,
+    body: 52,
+    label: 44,
+    titlePerChar: 0.32,
     bodyPerChar: 0.19,
   },
 };
@@ -97,11 +133,12 @@ export const LANDSCAPE: Layout = {
   // 左栏放文字（标题下的要点），右栏放插画；文字略窄，插画要够大
   leftColRatio: 0.46,
   type: {
-    title: 104,
-    subtitle: 42,
-    body: 50,
-    label: 40,
-    titlePerChar: 0.4,
+    // 同竖版：标题降权，把画面让给图（见 PORTRAIT 的注释）
+    title: 64,
+    subtitle: 40,
+    body: 46,
+    label: 38,
+    titlePerChar: 0.28,
     bodyPerChar: 0.17,
   },
 };

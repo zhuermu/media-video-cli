@@ -22,7 +22,11 @@ import {
 } from "../whiteboard/index";
 import type { Layout } from "./layout";
 import { PORTRAIT, contentW } from "./layout";
+import { circleAroundPath, keyUnderlinePath } from "./emphasis";
+import { parseInlineMarks } from "./inline-marks";
 import { markerStrokesEl } from "./marker";
+import { PALETTE, highlightOf } from "./palette";
+import { highlightEl } from "./strokes";
 
 /**
  * 默认画幅（竖屏）。组件实际用的是 `BlockCtx.layout`，这里只是兼容早期
@@ -32,27 +36,47 @@ export const G = PORTRAIT;
 
 export const CONTENT_W = contentW(PORTRAIT);
 
-/** 笔迹宽度档位（马克笔的粗细语言：标题粗、正文中、装饰细）. */
+/**
+ * 笔迹宽度档位（马克笔的粗细语言：标题粗、正文中、装饰细）。
+ *
+ * 整体较早先下调约 40%。原值（标题 13 / 下划线 11 / 框 8）在 1080 宽画幅上
+ * 已经接近"粗记号笔"，而设计稿的线条是**细笔**：框线和下划线只比正文笔画
+ * 略粗一点。线太粗的两个具体后果是：框和字之间的留白被吃掉，画面显得挤；
+ * 以及下划线压过标题底部的笔画，标题末字读起来像被划掉。
+ */
 export const W = {
-  title: 13,
-  heading: 10,
-  body: 7,
-  icon: 7,
-  frame: 8,
-  arrow: 8,
-  check: 9,
-  underline: 11,
+  title: 8,
+  heading: 6,
+  body: 4.5,
+  icon: 4.5,
+  frame: 5,
+  arrow: 5,
+  check: 5.5,
+  // 标题下划线是一道手写的勾，不是色条：6.5 的粗蓝线在小标题下会比标题本身更抢眼
+  underline: 3.6,
 } as const;
 
 /**
- * 手写字形的马克笔加粗量（stroke 膨胀轮廓）。
+ * 手写字形的轮廓膨胀量（"马克笔加粗"）——**默认为 0，即不膨胀**。
  *
- * 必须**按字号比例**推导，不能按角色写死常量：加粗量是绝对像素，同一个
- * 值在大字上是"马克笔粗度"，在小字上会把密集汉字的字腔（稿、素、materials
- * 这类多笔画字）直接填死糊成一团。0.058 是从"看起来对"的大标题
- * （size 118 / weight 7）反解出来的比例。
+ * ## 为什么归零
+ *
+ * 这个技巧原本是为霞鹜文楷服务的：楷体笔画细，膨胀轮廓能让字看起来像马克笔
+ * 写的。换成站酷快乐体（设计稿 §7 首选）之后它变成了纯粹的害处——**这支字体
+ * 本身就是圆头粗笔画**，膨胀是在已经很粗的笔画上再加粗。
+ *
+ * 而膨胀是把 stroke 画在轮廓上，轮廓包括**字腔**（笔画之间的白），所以每个
+ * 字腔两侧各被吃掉 `weight/2`。笔画密的字字腔本来只有几个像素：实测「事」
+ * 在 size=104 下，`weight=1` 已开始糊，`weight≥2` 完全糊成一个黑团（当时的
+ * 默认值算出来是 2.7）。这不是"偏粗"，是字认不出来了。
+ *
+ * 保留这个旋钮（`markerTextEl` 的 `weight`）而不是删掉，是因为将来若换回细笔画
+ * 字体仍然需要它；但默认必须是 0——字重应当由字体提供，不由后处理伪造。
+ *
+ * 设计稿 §7 的三档（标题粗体 / 副标题中粗 / 正文常规）因此改由**字号**承载，
+ * 见 `layout.ts` 的 {@link TypeScale}（title / subtitle / body / label 四阶）。
  */
-const MARKER_WEIGHT_RATIO = 0.058;
+const MARKER_WEIGHT_RATIO = 0;
 
 export function markerWeight(size: number): number {
   return size * MARKER_WEIGHT_RATIO;
@@ -273,10 +297,11 @@ export function titleBlock(
     const color = o.underlineAccent === true ? ctx.accent : ctx.ink;
     const uy = o.y + size * 1.1;
     const t0 = title.t1 + ctx.beat * 0.5;
+    // 只划到标题宽度的 ~78%：真人回头划线是随手一道，划满全宽会读作分隔条
     const lines: Pt[][] = [
       [
         [o.x - size * 0.03, uy],
-        [o.x + width + size * 0.06, uy],
+        [o.x + width * 0.78, uy],
       ],
     ];
     if (n === 2) {
@@ -439,6 +464,7 @@ export function checklist(
   const textX = o.x + checkSize * 1.5;
   let t = o.t0;
   for (const [i, item] of items.entries()) {
+    const { text: plain, marks } = parseInlineMarks(item);
     const cy = o.y + i * o.lineHeight + o.size * 0.5;
     els.push(
       markerStrokesEl([checkPath(o.x + checkSize * 0.5, cy, checkSize)], {
@@ -451,7 +477,7 @@ export function checklist(
       }),
     );
     t += 0.3 + ctx.beat * 0.25;
-    const line = markerTextEl(item, {
+    const line = markerTextEl(plain, {
       x: textX,
       y: o.y + i * o.lineHeight,
       size: o.size,
@@ -468,6 +494,63 @@ export function checklist(
     // 元素同时活跃，笔留在上一行，下一行的字却已经出现（"文字先出现、
     // 笔还没移动"）。
     t = line.t1 + ctx.beat * 0.5;
+    // 行内强调：整行写完**之后**再补。
+    //
+    // 顺序是有意的：真人是先写完一句，再回头涂color/划线/圈起来。边写边涂做不到
+    // ——涂抹的宽度取决于这段字最终有多宽，而那要等字写完才知道。
+    for (const [k, mark] of marks.entries()) {
+      const gap = o.size * 0.06;
+      const mx =
+        textX + textWidth(plain.slice(0, mark.from), o.size, gap) + gap / 2;
+      const mw = textWidth(plain.slice(mark.from, mark.to), o.size, gap);
+      const my = o.y + i * o.lineHeight;
+      const seed = `${o.idp}mk${i}_${k}`;
+      if (mark.kind === "highlight") {
+        els.push(
+          highlightEl(
+            mx - o.size * 0.08,
+            my + o.size * 0.1,
+            mw + o.size * 0.16,
+            {
+              t0: t,
+              dur: 0.34,
+              // 荧光笔用**黄色**（HIGHLIGHTS 的第 3 个）而不是第 1 个蓝：
+              // 设计稿 §4/§13 的高亮都是黄的，而蓝色涂抹压在黑字上偏冷、
+              // 又和标题下划线的蓝撞车，读起来像"这行被选中了"而不是"重点"。
+              color: highlightOf(2),
+              height: o.size * 1.02,
+              seed,
+            },
+          ),
+        );
+        t += 0.34 + ctx.beat * 0.3;
+      } else if (mark.kind === "key") {
+        const el = markerStrokesEl([keyUnderlinePath(mx, my, mw, o.size)], {
+          t0: t,
+          dur: 0.3,
+          color: ctx.accent,
+          width: W.body,
+          seed,
+          amp: 2.0,
+        });
+        els.push(el);
+        t = el.t1 + ctx.beat * 0.3;
+      } else {
+        const el = markerStrokesEl(
+          [circleAroundPath(mx, my, mw, o.size * 1.1)],
+          {
+            t0: t,
+            dur: 0.52,
+            color: PALETTE.danger,
+            width: W.body,
+            seed,
+            amp: 2.4,
+          },
+        );
+        els.push(el);
+        t = el.t1 + ctx.beat * 0.3;
+      }
+    }
   }
   return {
     els,

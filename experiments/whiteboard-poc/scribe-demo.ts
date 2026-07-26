@@ -8,7 +8,7 @@
  *
  * 版式不是等比缩放：竖屏单栏纵向流，横屏双栏（左文右图）——见 layout.ts。
  *
- * 运行（media-video-agent/ 下）：
+ * 运行（media-video-cli/ 下）：
  *   bun run experiments/whiteboard-poc/scribe-demo.ts             # 两个画幅各出关键帧
  *   bun run experiments/whiteboard-poc/scribe-demo.ts --video     # 两个画幅各出 mp4
  */

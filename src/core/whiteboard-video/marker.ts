@@ -19,6 +19,7 @@ import type { Pt } from "../whiteboard/index";
 import {
   clamp01,
   cumLengths,
+  resampleStep,
   easeInOutSine,
   fmt,
   hashSeed,
@@ -229,7 +230,8 @@ export function markerStrokesEl(
     const seed = hashSeed(`${o.seed}:${i}`);
     const rawTotal = cumLengths(p)[p.length - 1] ?? 0;
     const ampEff = Math.min(amp, Math.max(0.6, rawTotal * 0.018));
-    const stepEff = Math.min(26, Math.max(6, rawTotal / 14));
+    // 步长受输入细节约束，否则圆角/小弧会被重采样抹平（见 resampleStep 注释）
+    const stepEff = resampleStep(p, rawTotal);
     let pts = wobble(p, seed, { amp: ampEff, step: stepEff, wavelength: 130 });
     if (o.overshoot !== false && rawTotal > 40) {
       const rnd = mulberry32(seed ^ 0x5f3759df);

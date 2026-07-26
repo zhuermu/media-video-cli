@@ -43,6 +43,7 @@ import { Resvg } from "@resvg/resvg-js";
 
 import { fmt } from "../whiteboard/index";
 import type { PenPose } from "../whiteboard/index";
+import type { Orientation } from "./layout";
 
 /**
  * 手部贴图在 1080 宽画幅下的默认显示宽度（px）。
@@ -299,7 +300,12 @@ export interface ArmCuff {
  * 所以补一条假手臂和放大都不成立，切断才是对的：观众不会追问手臂在哪，
  * 但会立刻注意到一条断在画面正中的胳膊。
  */
-export type ArmMode = "extend" | "cuff";
+/**
+ * `"none"`：什么都不补。给**根本没有手臂的光标**用（只有一支笔的模式）——笔素材
+ * 下方是投影而不是前臂，套袖口或接带子都会在投影上长出一块莫名的色块。
+ * 只有笔的模式因此绕开了上面整段权衡：没有手臂，就没有收尾问题。
+ */
+export type ArmMode = "extend" | "cuff" | "none";
 
 /** 手腕（缩放后坐标）：前臂最细处，袖口就套在这儿. */
 export interface Wrist {
@@ -550,8 +556,82 @@ export function canvasHandScale(canvasW: number, canvasH?: number): number {
   return Math.min(canvasW, canvasH ?? canvasW) / 1080;
 }
 
-/** 手臂收尾方式的默认值（见 {@link ArmMode} 里"为什么不靠放大解决"）. */
+/** 手臂收尾方式的默认值（量不出手腕时的兜底；正常按画幅走 {@link armModeFor}）. */
 export const DEFAULT_ARM_MODE: ArmMode = "cuff";
+
+/**
+ * 手臂显示高度（1080 短边画幅下），**按画幅朝向直接给像素**，不再从"手宽"换算。
+ *
+ * 早先是 `handSize × 1210/768` 换算过来的，那个 1210/768 是 suneeta 素材的比例——
+ * 换一支手臂更窄的素材，同一个"手宽"会得到完全不同的手臂长度，很容易算错。手势
+ * 素材本来就是按**手臂高度**归一的（见 {@link ARM_DISPLAY_HEIGHT}），所以直接给高度。
+ *
+ * 取值目标是**让手臂伸出画幅**（参考图里前臂都是被画幅边缘切掉的）：
+ * 判定标准是**最坏帧**——全片笔尖最高的那一帧（通常是写标题第一个字），此时手臂
+ * 另一端仍要在画幅之外。最坏帧不能靠 `marginTop` 估，得实测：`experiments/hand-frame.ts`
+ * 探针遍历全片求笔尖屏幕坐标最小的 y，示例文章上是横版 y=126、竖版 y=210。
+ *
+ * 贴图左上角画在 `笔尖 − tip` 处，故贴图底边 = `penY − tipY + h`。当前取值实测：
+ * - 横版 1920×1080，臂高 1550：手宽 818px（43% 画宽），最坏帧底边 y≈1582，余量 502px。
+ * - 竖版 1080×1920，臂高 2250：手宽 1187px（110% 画宽），最坏帧底边 y≈2324，余量 404px。
+ *
+ * 都留了四五百像素余量，而不是刚好够——`marginTop` 或标题字号一改，刚好够就会变成
+ * 差一点，而"差一点"的表现是画板中间多出一截斜切的断臂，比手大一点难看得多（1830
+ * 那一档就是这样，实测断口正好露在画幅底边内侧）。
+ *
+ * 这两个值只在手臂**够窄**的素材上成立：手宽 = 高度 × 素材宽高比。所以书写素材由
+ * {@link HAND_WRITE_SLUG} 钉死（matt-pencil-1，0.527），不让 `pickGesture` 按"哪支笔
+ * 像白板笔"自选——chalk-1（0.750）在竖版会算出 1.7 倍画宽的手。
+ */
+export const LANDSCAPE_ARM_HEIGHT = 1550;
+export const PORTRAIT_ARM_HEIGHT = 2250;
+
+/**
+ * 按画幅朝向选手臂收尾方式。
+ *
+ * - **横版 → `extend`**：手放大后真手臂本身就伸出画幅，顺着方向接一段带子刚好补在
+ *   画外，看不见；袖口反而是个突兀的深色方块。
+ * - **竖版 → `none`**：竖版手臂高度已经超过画幅高（2250 > 1920），素材自己那段前臂
+ *   就伸出画外了，不需要补；补的话那条又粗又长的合成色带会读作假的（纯色、渐变都试过）。
+ */
+export function armModeFor(orientation: Orientation): ArmMode {
+  // 横版：手放大后真手臂本身就伸出画幅，接一段带子刚好补在画外，看不见。
+  // 竖版：画幅 1920 高，实测手臂要伸出画幅需要手宽 104% 画宽（比屏幕还宽），
+  // 所以补的带子必然有 400px 以上留在画面里——纯色也好、渐变也好，那么长一段
+  // 合成肢体都会读作假的（两种都试过）。竖版因此**什么都不补**，让素材自己那段
+  // 渐尖收笔的小臂自然收掉。
+  return orientation === "landscape" ? "extend" : "none";
+}
+
+/** 按画幅朝向选手臂显示高度. */
+export function armHeightFor(orientation: Orientation): number {
+  return orientation === "landscape"
+    ? LANDSCAPE_ARM_HEIGHT
+    : PORTRAIT_ARM_HEIGHT;
+}
+
+/** 画笔光标类型：只有一支笔 / 手 + 前臂. */
+export type CursorKind = "pen" | "hand";
+
+/**
+ * 只有笔时的光标显示高度（1080 短边下）。
+ *
+ * 不能沿用手臂高度：那是按"手 + 前臂"归一的，而笔素材是斜放的笔身，套上去一支笔
+ * 会被放大到半个画面。
+ */
+export const PEN_DISPLAY_HEIGHT = 220;
+
+/** 只有笔的模式默认用哪支笔（银灰细杆，最接近 Apple Pencil 的观感）. */
+export const DEFAULT_PEN_SLUG = "black-biro";
+
+/**
+ * 手拿笔模式固定用哪张书写素材（用户指定）。
+ *
+ * 手宽 = 手臂高度 × 素材宽高比，这张是 422×800（0.527）——比 matt 的中位数窄，
+ * 放大到手臂出画时手宽还装得下画幅。找不到这个 slug 时回退到该 persona 手臂最窄的
+ * 那张（窄 = 同样手臂长度下手更小，更容易让手臂出画）。
+ */
+export const HAND_WRITE_SLUG = "matt-pencil-1";
 
 /**
  * 装载一只手（draw + move 两态），缩放到该画幅的显示尺寸并编码为 data URI。
@@ -673,7 +753,38 @@ function armExtensionSvg(img: HandImage): string {
     pt(x1 + dxBot, yBot),
     pt(x0 + dxBot, yBot),
   ].join(" ");
-  return `<polygon points="${points}" fill="${arm.fill}"/>`;
+  // 横向筒状明暗：肢体是圆柱，受光后两侧暗、中间亮。
+  //
+  // 早先这里是一块**纯色**多边形，而且画在贴图**下面**。两个问题叠加起来非常显眼：
+  // 纯色让它读作"一张纸"而不是手臂；画在下面则让贴图里那段渐尖收笔的小臂露在
+  // 外面，于是色块从锥形手臂两侧支出去，接缝处还有一道硬台阶（竖版尤其明显，
+  // 因为要补的长度很长）。
+  //
+  // 现在改成：画在贴图**上面**（盖住那段锥尖，silhouette 变成等宽的手臂），
+  // 并给一道横向三段渐变。参考图里的手臂正是被画幅边缘齐齐切掉的等宽小臂。
+  const id = `armx${Math.round(arm.x0)}_${Math.round(arm.y)}`;
+  const edge = shade(arm.fill, 0.82);
+  const mid = shade(arm.fill, 1.04);
+  return (
+    `<defs><linearGradient id="${id}" x1="0%" y1="0%" x2="100%" y2="0%">` +
+    `<stop offset="0%" stop-color="${edge}"/>` +
+    `<stop offset="38%" stop-color="${mid}"/>` +
+    `<stop offset="72%" stop-color="${arm.fill}"/>` +
+    `<stop offset="100%" stop-color="${edge}"/>` +
+    `</linearGradient></defs>` +
+    `<polygon points="${points}" fill="url(#${id})"/>`
+  );
+}
+
+/** 把 `#rrggbb` 按系数提亮/压暗（>1 提亮），用于手臂的筒状明暗. */
+function shade(hex: string, k: number): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (m === null) return hex;
+  const n = parseInt(m[1]!, 16);
+  const ch = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map((v) =>
+    Math.max(0, Math.min(255, Math.round(v * k))),
+  );
+  return `#${ch.map((v) => v.toString(16).padStart(2, "0")).join("")}`;
 }
 
 /** 袖口比手腕宽多少（袖子总是比手腕松一圈；等宽会像贴了块胶布）. */
@@ -787,13 +898,15 @@ export function handCueSvg(cue: HandCue): string {
   const op = cue.opacity ?? 1;
   const opAttr = op >= 1 ? "" : ` opacity="${fmt(op)}"`;
   // 袖口量不出手腕时退回接出画面：宁可手臂长，也不要在错的地方切一刀
+  const noArm = cue.rt.armMode === "none";
   const cuff = cue.rt.armMode === "cuff" ? cuffSvg(img) : null;
   const clipAttr = cuff === null ? "" : ` clip-path="url(#${cuff.clipId})"`;
   return [
     `<g${opAttr} transform="translate(${fmt(cue.x)},${fmt(cue.y - dy)}) rotate(${fmt(cue.rotDeg ?? 0)}) scale(${fmt(scale)})${mirror}">`,
     cuff?.defs ?? "",
-    cuff === null ? armExtensionSvg(img) : "",
     `<image${clipAttr} href="${img.uri}" x="${fmt(-img.tipX)}" y="${fmt(-img.tipY)}" width="${fmt(img.w)}" height="${fmt(img.h)}"/>`,
+    // 延长带画在贴图**之后**：盖住素材里那段渐尖收笔的小臂，silhouette 才是等宽的
+    cuff === null && !noArm ? armExtensionSvg(img) : "",
     cuff?.over ?? "",
     `</g>`,
   ].join("");

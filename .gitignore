@@ -49,3 +49,11 @@ assets/sparkol/**/*.mp3
 #   python3 assets/manypixels/fetch_manypixels.py download
 assets/manypixels/svg/
 assets/manypixels/*.svg
+
+# ── 本轮新增（可再生 / 本地素材，不入库）
+# 目视复核用的渲染产物：脚本能再生（experiments/section-shots.ts、hand-frame.ts）
+experiments/preview/
+experiments/*.png
+# 设计稿与个人图片：参考素材，不属于代码契约
+assets/design/
+assets/gzh-qcoder.jpg

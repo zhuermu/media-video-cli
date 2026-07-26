@@ -9,7 +9,8 @@
  *   永不改变成片时长，backend 的音画 probe 自检不受影响）；
  * - writing 输入以 -stream_loop -1 无限循环，按事件表 asplit 出 N 份，
  *   逐段 atrim 到段长 + adelay 到位 + 低音量（铺垫感）；
- * - whoosh 输入 asplit 出 M 份，逐个 adelay + 中音量；
+ * - 点状音效（whoosh / ding / pop / page / sparkle）每类一个输入，
+ *   asplit 出 M 份，逐个 adelay 到位 + 各自音量；
  * - amix normalize=0（不自动压低口播）。
  */
 
@@ -20,6 +21,24 @@ export const WRITING_VOLUME = 0.16;
 
 /** whoosh 点缀音量. */
 export const WHOOSH_VOLUME = 0.32;
+
+/**
+ * 点状音效的默认音量。
+ *
+ * 都明显低于 whoosh：转场一次只响一下，而打勾/入场这类点位一段里有三五个，
+ * 同样音量叠起来会盖住口播。ding 比 pop 略响——它标记的是"这条确认了"，
+ * pop 只是元素出现的一点质感。
+ */
+export const CUE_VOLUME = {
+  whoosh: WHOOSH_VOLUME,
+  ding: 0.2,
+  pop: 0.14,
+  page: 0.26,
+  sparkle: 0.18,
+} as const;
+
+/** 点状音效类目. */
+export type CueKind = keyof typeof CUE_VOLUME;
 
 /** 单事件类目上限（防御：filtergraph 规模失控）. */
 export const SFX_EVENTS_MAX = 80;
@@ -34,15 +53,43 @@ export interface SfxMixJob {
   /** whoosh 音效文件（可缺省 = 无转场点缀）. */
   whooshFile?: string;
   whooshTimes: readonly number[];
+  /**
+   * 其余点状音效：类目 → { 文件, 点位 }。缺项 = 不混这一类。
+   *
+   * 做成一张表而不是继续加 `dingFile`/`dingTimes` 这样的字段对：每加一类音效
+   * 都要改 job 形状、hasSfxWork、输入编号三处，漏一处就是"素材在库里但一声
+   * 不响"（whoosh 挂钩失效过一次，正是这个形状造成的）。
+   */
+  cues?: Partial<Record<CueKind, { file: string; times: readonly number[] }>>;
   /** 输出 m4a 路径. */
   output: string;
+}
+
+/** 点状音效的规范化列表（whoosh 的独立字段并进同一张表）. */
+function pointCues(
+  job: SfxMixJob,
+): Array<{ kind: CueKind; file: string; times: number[] }> {
+  const out: Array<{ kind: CueKind; file: string; times: number[] }> = [];
+  if (job.whooshFile !== undefined && job.whooshTimes.length > 0) {
+    out.push({
+      kind: "whoosh",
+      file: job.whooshFile,
+      times: [...job.whooshTimes],
+    });
+  }
+  for (const [kind, cue] of Object.entries(job.cues ?? {})) {
+    if (cue === undefined || cue.times.length === 0) continue;
+    if (kind === "whoosh") continue; // 走上面的独立字段，避免重复入轨
+    out.push({ kind: kind as CueKind, file: cue.file, times: [...cue.times] });
+  }
+  return out;
 }
 
 /** 是否存在任何可混的事件（无事件时调用方应跳过混音）. */
 export function hasSfxWork(job: SfxMixJob): boolean {
   return (
     (job.writingFile !== undefined && job.writingSpans.length > 0) ||
-    (job.whooshFile !== undefined && job.whooshTimes.length > 0)
+    pointCues(job).length > 0
   );
 }
 
@@ -62,22 +109,26 @@ export function buildSfxMixArgs(
   }
   const writingSpans =
     job.writingFile !== undefined ? [...job.writingSpans] : [];
-  const whooshTimes = job.whooshFile !== undefined ? [...job.whooshTimes] : [];
-  if (
-    writingSpans.length > SFX_EVENTS_MAX ||
-    whooshTimes.length > SFX_EVENTS_MAX
-  ) {
+  const cues = pointCues(job);
+  if (writingSpans.length > SFX_EVENTS_MAX) {
     throw new ValidationError(
-      `音效事件超上限 ${SFX_EVENTS_MAX}（writing ${writingSpans.length} / whoosh ${whooshTimes.length}）`,
+      `音效事件超上限 ${SFX_EVENTS_MAX}（writing ${writingSpans.length}）`,
     );
+  }
+  for (const c of cues) {
+    if (c.times.length > SFX_EVENTS_MAX) {
+      throw new ValidationError(
+        `音效事件超上限 ${SFX_EVENTS_MAX}（${c.kind} ${c.times.length}）`,
+      );
+    }
+    if (c.times.some((t) => t < 0 || !Number.isFinite(t))) {
+      throw new ValidationError(`${c.kind} 点位非法: [${c.times.join(", ")}]`);
+    }
   }
   for (const s of writingSpans) {
     if (!(s.t1 > s.t0) || s.t0 < 0) {
       throw new ValidationError(`writing 区间非法: [${s.t0}, ${s.t1}]`);
     }
-  }
-  if (whooshTimes.some((t) => t < 0 || !Number.isFinite(t))) {
-    throw new ValidationError(`whoosh 点位非法: [${whooshTimes.join(", ")}]`);
   }
 
   // 输入表：0 = 口播；writing/whoosh 依存在性顺序编号
@@ -90,15 +141,15 @@ export function buildSfxMixArgs(
     job.narration,
   ];
   let writingInput = -1;
-  let whooshInput = -1;
+  let nextInput = 1;
   if (job.writingFile !== undefined && writingSpans.length > 0) {
-    writingInput = 1;
+    writingInput = nextInput++;
     argv.push("-stream_loop", "-1", "-i", job.writingFile);
   }
-  if (job.whooshFile !== undefined && whooshTimes.length > 0) {
-    whooshInput = writingInput === -1 ? 1 : 2;
-    argv.push("-i", job.whooshFile);
-  }
+  const cueInputs = cues.map((c) => {
+    argv.push("-i", c.file);
+    return { ...c, input: nextInput++ };
+  });
 
   const graph: string[] = [];
   const mixLabels: string[] = ["[0:a]"];
@@ -114,15 +165,16 @@ export function buildSfxMixArgs(
       mixLabels.push(`[ws${k}]`);
     });
   }
-  if (whooshInput !== -1) {
-    const outs = whooshTimes.map((_, k) => `[x${k}]`).join("");
-    graph.push(`[${whooshInput}:a]asplit=${whooshTimes.length}${outs}`);
-    whooshTimes.forEach((t, k) => {
+  for (const [ci, cue] of cueInputs.entries()) {
+    const tag = `c${ci}`;
+    const outs = cue.times.map((_, k) => `[${tag}_${k}]`).join("");
+    graph.push(`[${cue.input}:a]asplit=${cue.times.length}${outs}`);
+    cue.times.forEach((t, k) => {
       const delay = ms(t);
       graph.push(
-        `[x${k}]adelay=${delay}|${delay},volume=${WHOOSH_VOLUME}[xs${k}]`,
+        `[${tag}_${k}]adelay=${delay}|${delay},volume=${CUE_VOLUME[cue.kind]}[${tag}s${k}]`,
       );
-      mixLabels.push(`[xs${k}]`);
+      mixLabels.push(`[${tag}s${k}]`);
     });
   }
   graph.push(

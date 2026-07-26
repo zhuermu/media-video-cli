@@ -7,7 +7,7 @@
  * 3. `erase` 擦掉一条"假设"（叙事上的否定）
  * 4. `point` 指着已经画好的东西强调（不留痕的强调）
  *
- * 运行（media-video-agent/ 下）：
+ * 运行（media-video-cli/ 下）：
  *   bun run experiments/whiteboard-poc/gesture-demo.ts           # 关键帧
  *   bun run experiments/whiteboard-poc/gesture-demo.ts --video   # mp4
  */

@@ -231,6 +231,37 @@ export function wobble(
 
 // ---- 形状采样 ----
 
+/**
+ * 手绘化重采样的步长：既要够粗（抖动才平滑、点数才可控），又不能粗到**吃掉
+ * 输入本身的细节**。
+ *
+ * 只按总弧长推导（早先的 `min(26, max(6, total/14))`）会出一个隐蔽的坏结果：
+ * 路径一长，步长就顶到 26px，而圆角、小弧这些特征的分段只有 2-3px——重采样
+ * 直接把它们抹平。实测一个 300×60 的胶囊形（78 点、周长 689）被压成 27 点，
+ * 四个圆角全变成斜切面，渲出来是个六边形。这个 bug 会影响所有圆角/曲线形状。
+ *
+ * 所以再加一道上限：**输入分段长度的中位数 × 3**。密采样的弧（分段短）因此
+ * 得到小步长、细节保住；一条两点直线（分段就是全长）步长不变、成本不变。
+ *
+ * 代价可以忽略：`wobble` 只在元素**构造期**跑一次，而每帧的笔迹带是按自己的
+ * `BAND_STEP` 重采样的，与这里的点数几乎无关。
+ */
+export function resampleStep(pts: readonly Pt[], total: number): number {
+  const segs: number[] = [];
+  for (let i = 1; i < pts.length; i++) {
+    const d = Math.hypot(
+      pts[i]![0] - pts[i - 1]![0],
+      pts[i]![1] - pts[i - 1]![1],
+    );
+    if (d > 1e-6) segs.push(d);
+  }
+  const byLength = Math.max(6, total / 14);
+  if (segs.length === 0) return Math.min(26, byLength);
+  segs.sort((a, b) => a - b);
+  const median = segs[Math.floor(segs.length / 2)]!;
+  return Math.min(26, byLength, Math.max(4, median * 3));
+}
+
 /** 椭圆弧采样为折线（角度制）. */
 export function ellipsePts(
   cx: number,

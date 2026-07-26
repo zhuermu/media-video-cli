@@ -28,10 +28,18 @@ import { composeStoryboard } from "./compose";
 import type { SpokenSection, Storyboard } from "./compose";
 import { resolveRequest } from "./config";
 import type { WhiteboardVideoOptions, WhiteboardVideoRequest } from "./config";
+import { loadPersona } from "@core/persona";
 import { resolveFormat } from "./format";
 import type { FormatSpec } from "./format";
 import { listGestures, loadHandKit } from "./gestures";
-import type { HandKit } from "./gestures";
+import {
+  DEFAULT_PEN_SLUG,
+  HAND_WRITE_SLUG,
+  PEN_DISPLAY_HEIGHT,
+  armHeightFor,
+  armModeFor,
+} from "./hand";
+import type { GestureAsset, HandKit } from "./gestures";
 import type { Log } from "./log";
 import { silent } from "./log";
 import {
@@ -69,6 +77,16 @@ export async function prepareVideo(
 
   // ── 1. 分镜 ──
   const article = parseArticle(request.articlePath);
+  // 人设：署名 + 关注引导 + 默认音色的数据源（缺文件 = 不署名，见 core/persona）
+  const persona = loadPersona();
+  // 优先级 文章 > 人设 > 库默认：作者在文章里显式写了 `> cast:` 就以文章为准，
+  // 人设给的只是**默认值**。反过来（人设覆盖文章）会让同一篇文章在不同仓库里
+  // 出不同的声音。
+  if (persona !== undefined && !article.castAuthored) {
+    for (const role of Object.keys(article.cast)) {
+      article.cast[role] = persona.defaultVoice;
+    }
+  }
   log(
     `分镜 ${article.sections.length} 段：` +
       article.sections.map((s) => s.title).join(" / "),
@@ -103,21 +121,67 @@ export async function prepareVideo(
   );
 
   // ── 4. 手势四件套 ──
+  const penOnly = request.cursor === "pen";
+  const allGestures = listGestures(request.assets.hands, {
+    includePens: penOnly,
+  });
+  // 只有笔的模式：把候选收窄到指定那支笔再交给 loadHandKit。
+  // 不收窄的话 pickGesture 会按"像白板的笔具"偏好挑到 marker（而且按墨色挑成
+  // 黄色马克笔）——那是给手握着用的粗笔，单独浮在画面上不像 Apple Pencil。
+  /**
+   * 手拿笔模式固定用 HAND_WRITE_SLUG 那张书写素材。
+   *
+   * 不按"哪支笔像白板笔"的偏好挑：手放大到手臂出画后，素材的宽高比直接决定手宽
+   * （手宽 = 手臂高度 × 比例），chalk-1 那种 0.75 的会算出比画幅还宽的手。指定
+   * 一张，两种画幅都用它，观感才稳定。缺失时回退到该 persona 手臂最窄的一张。
+   */
+  const pinnedWrite = (all: readonly GestureAsset[]): GestureAsset[] => {
+    const writes = all.filter(
+      (a) => a.role === "write" && a.persona === request.persona,
+    );
+    if (writes.length === 0) return [...all];
+    const best =
+      writes.find((a) => a.slug === HAND_WRITE_SLUG) ??
+      writes.reduce((a, b) =>
+        a.width / a.height <= b.width / b.height ? a : b,
+      );
+    return [...all.filter((a) => a.role !== "write"), best];
+  };
+
+  const gestures = penOnly
+    ? (() => {
+        const pens = allGestures.filter((a) => a.persona === "pens");
+        const pick = pens.filter((a) => a.slug === DEFAULT_PEN_SLUG);
+        return pick.length > 0 ? pick : pens;
+      })()
+    : pinnedWrite(allGestures);
   const kit = loadHandKit(
-    listGestures(request.assets.hands),
-    request.persona,
+    gestures,
+    penOnly ? "pens" : request.persona,
     request.ink,
-    {
-      canvasWidth: L.width,
-      canvasHeight: L.height,
-      armMode: request.armMode,
-    },
+    penOnly
+      ? {
+          canvasWidth: L.width,
+          canvasHeight: L.height,
+          // 笔没有手臂，什么都不补；按笔的高度归一而不是手臂高度
+          armMode: "none",
+          armHeight: PEN_DISPLAY_HEIGHT,
+          writeOnly: true,
+        }
+      : {
+          canvasWidth: L.width,
+          canvasHeight: L.height,
+          // 未显式指定（--arm）时按画幅朝向选：横版接出画面、竖版切袖口
+          armMode: request.armMode ?? armModeFor(L.orientation),
+          armHeight: armHeightFor(L.orientation),
+        },
   );
   log(
-    `手势 ${request.persona}: write=${kit.write?.asset.slug ?? "—"} ` +
+    `光标 ${penOnly ? "pen" : request.persona}: write=${kit.write?.asset.slug ?? "—"} ` +
       `erase=${kit.erase?.asset.slug ?? "—"} ` +
       `carry=${kit.carry?.asset.slug ?? "—"} ` +
-      `point=${kit.point?.asset.slug ?? "—"}`,
+      `point=${kit.point?.asset.slug ?? "—"} ` +
+      `arm=${penOnly ? "none(pen)" : (request.armMode ?? armModeFor(L.orientation))}`,
   );
 
   // ── 5. 版式 + 排片 ──
@@ -129,6 +193,7 @@ export async function prepareVideo(
     ink: request.ink,
     accent: request.accent,
     illustrationsDir: request.assets.illustrations,
+    ...(persona === undefined ? {} : { persona }),
     log,
   });
   log(
@@ -144,6 +209,10 @@ export async function prepareVideo(
     ink: request.ink,
     accent: request.accent,
     burnSubtitles: request.burnSubtitles,
+    // 底纹优先级：CLI --background > 文章 `> background:` > 默认。
+    // CLI 在上是因为它是"这次渲染"的意图，文章里的是"这篇文章"的意图；
+    // 想临时换底纹试观感时不该被迫改文章。
+    background: opts.background ?? article.background ?? request.background,
   });
 
   return { request, article, spoken, format, kit, storyboard, frameSvg };
@@ -173,9 +242,20 @@ export async function renderWhiteboardVideo(
 
   await mkdir(request.outDir, { recursive: true });
 
+  // 试看档：帧/旁白/音效/字幕共用同一个上限，听到看到的就是整片的开头那一段
+  const totalSec =
+    request.previewSec === undefined
+      ? storyboard.totalSec
+      : Math.min(request.previewSec, storyboard.totalSec);
+  if (totalSec < storyboard.totalSec) {
+    log(
+      `试看档：只渲前 ${totalSec.toFixed(1)}s（整片 ${storyboard.totalSec.toFixed(1)}s）`,
+    );
+  }
+
   const frames = await renderFrames({
     framesDir: request.framesDir,
-    totalSec: storyboard.totalSec,
+    totalSec,
     frameSvg: prepared.frameSvg,
     fresh: request.fresh,
     log,
@@ -186,19 +266,24 @@ export async function renderWhiteboardVideo(
     storyboard,
     spoken: prepared.spoken,
     output: join(request.outDir, `${request.tag}-narration.m4a`),
-    totalSec: storyboard.totalSec,
+    totalSec,
     log,
   });
   const audioTrack = await mixSfx({
     narrationTrack,
     storyboard,
-    totalSec: storyboard.totalSec,
+    totalSec,
     output: join(request.outDir, `${request.tag}-audio.m4a`),
     log,
   });
 
   const srt = await writeSrt(
-    storyboard,
+    totalSec < storyboard.totalSec
+      ? {
+          ...storyboard,
+          subtitles: storyboard.subtitles.filter((l) => l.t0 < totalSec),
+        }
+      : storyboard,
     join(request.outDir, `${request.tag}.srt`),
   );
   const mp4 = await muxVideo({
@@ -214,7 +299,7 @@ export async function renderWhiteboardVideo(
     kind: format.kind,
     width: format.layout.width,
     height: format.layout.height,
-    durationSec: storyboard.totalSec,
+    durationSec: totalSec,
     sections: prepared.article.sections.length,
     totalFrames: frames.totalFrames,
     renderedFrames: frames.rendered,

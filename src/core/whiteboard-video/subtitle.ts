@@ -26,7 +26,12 @@
  * 1080 宽、字号 46 时一行放得下约 20 个全宽字，留两个字的余量给标点悬挂。
  */
 
-import { clamp01, fmt, glyphVector } from "../whiteboard/index";
+import {
+  clamp01,
+  fmt,
+  glyphVector,
+  sansGlyphVector,
+} from "../whiteboard/index";
 import type { TimelineEl } from "../whiteboard/index";
 import type { Narration } from "./narrate";
 import { timeAtChar } from "./narrate";
@@ -108,6 +113,11 @@ export interface VectorTextOpts {
   anchor?: "start" | "middle" | "end";
   /** 字间额外间距. */
   tracking?: number;
+  /**
+   * 字形来源。默认 `handwriting`（手写体优先、缺字回退无衬线）；
+   * `sans` 直接用无衬线字体——字幕专用，见 {@link sansGlyphVector}。
+   */
+  font?: "handwriting" | "sans";
 }
 
 /**
@@ -125,7 +135,8 @@ export function vectorText(
 ): { svg: string; width: number } {
   const chars = [...text];
   const tracking = o.tracking ?? 0;
-  const vecs = chars.map((ch) => glyphVector(ch, o.size));
+  const glyph = o.font === "sans" ? sansGlyphVector : glyphVector;
+  const vecs = chars.map((ch) => glyph(ch, o.size));
   const advance = (i: number): number =>
     (vecs[i]?.advance ?? (/\s/.test(chars[i]!) ? o.size * 0.4 : o.size)) +
     tracking;
@@ -282,6 +293,10 @@ export function subtitleEl(
       size,
       color,
       anchor: "middle",
+      // 字幕走无衬线，和板上的手写体拉开：字幕是叠在画面上的一层说明，
+      // 不是白板上又写了一行字。字重/字形一致时，观众会去"读板书"。
+      font: "sans",
+      tracking: size * 0.03,
     });
     return { ...l, glyphs: svg, width };
   });

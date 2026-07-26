@@ -25,6 +25,7 @@ import {
   overshootPts,
   pointAtLength,
   polylineAttr,
+  resampleStep,
   slicePolyline,
   wobble,
 } from "./geometry";
@@ -52,7 +53,8 @@ export function strokesEl(paths: readonly Pt[][], o: StrokesOpts): TimelineEl {
     // 抖动/重采样/过冲全部随路径弧长缩放：大线条有手感，小部件不变形
     const rawTotal = cumLengths(p)[p.length - 1] ?? 0;
     const ampEff = Math.min(amp, Math.max(0.6, rawTotal * 0.018));
-    const stepEff = Math.min(26, Math.max(6, rawTotal / 14));
+    // 同 marker.ts：步长必须受输入细节约束，否则圆角会被抹平
+    const stepEff = resampleStep(p, rawTotal);
     let pts = wobble(p, seed, { amp: ampEff, step: stepEff, wavelength: 130 });
     if (o.overshoot !== false && rawTotal > 40) {
       const rnd = mulberry32(seed ^ 0x5f3759df);

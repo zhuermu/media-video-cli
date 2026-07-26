@@ -99,7 +99,23 @@ export interface Article {
    * 文件时 compose 自己会跳过，所以默认开不会在没配人设的仓库里报错。
    */
   signature: boolean;
+  /**
+   * 片头封面（`> cover: on | off | <段号>`），默认 on。
+   *
+   * `on` = 用第一个带图形块的段的块当封面主视觉；给段号则用那一段的块。封面
+   * 不是新画法，它复用板书块的排版——否则封面会长成另一套视觉，观众点进来会
+   * 觉得走错片子。
+   */
+  cover: CoverPick;
+  /** 封面副标题（`> subtitle:`）；没写就不画那一行. */
+  subtitle?: string;
+  /** 封面底部金句（`> tagline:`）；没写则退回片尾 note 块的文本. */
+  tagline?: string;
 }
+
+/** 封面主视觉的取法：关掉 / 自动挑 / 指定段号（1 起）. */
+export type CoverPick =
+  { kind: "off" } | { kind: "auto" } | { kind: "section"; index: number };
 
 /** 单人片的默认角色名（脚本里不写角色名时归到它）. */
 export const DEFAULT_SPEAKER = "旁白";
@@ -191,6 +207,9 @@ export function parseArticle(path: string): Article {
   let kind: VideoKind = "auto";
   let background: BoardBackground | undefined;
   let signature = true;
+  let cover: CoverPick = { kind: "auto" };
+  let subtitle: string | undefined;
+  let tagline: string | undefined;
   const sections: Section[] = [];
   let cur: Section | null = null;
   /** 当前正在收集的围栏代码块（null = 不在块内）. */
@@ -289,6 +308,12 @@ export function parseArticle(path: string): Article {
           throw new ValidationError(`signature 只接受 on | off，得到 "${v}"`);
         }
         signature = v === "on";
+      } else if (k === "cover") {
+        cover = parseCoverPick(v);
+      } else if (k === "subtitle") {
+        subtitle = v;
+      } else if (k === "tagline") {
+        tagline = v;
       }
       continue;
     }
@@ -392,7 +417,38 @@ export function parseArticle(path: string): Article {
   if (cast[DEFAULT_SPEAKER] === undefined) {
     cast = { ...CAST_PRESETS["solo"], ...cast };
   }
-  return background === undefined
-    ? { title, sections, cast, castAuthored, kind, signature }
-    : { title, sections, cast, castAuthored, kind, background, signature };
+  // 指定段号越界当场报错：静默退回自动挑会让作者以为指令生效了
+  if (cover.kind === "section" && cover.index > sections.length) {
+    throw new ValidationError(
+      `cover 指定的第 ${cover.index} 段不存在（全片共 ${sections.length} 段）`,
+    );
+  }
+  return {
+    title,
+    sections,
+    cast,
+    castAuthored,
+    kind,
+    signature,
+    cover,
+    ...(background === undefined ? {} : { background }),
+    ...(subtitle === undefined ? {} : { subtitle }),
+    ...(tagline === undefined ? {} : { tagline }),
+  };
+}
+
+/**
+ * `> cover:` 的值 → 取法。
+ *
+ * 写错一个词就静默不出封面，作者不会发现——所以非法值当场报错（同 background /
+ * signature 的姿态）。
+ */
+export function parseCoverPick(v: string): CoverPick {
+  if (v === "off") return { kind: "off" };
+  if (v === "on" || v === "auto") return { kind: "auto" };
+  const n = Number(v);
+  if (Number.isInteger(n) && n >= 1) return { kind: "section", index: n };
+  throw new ValidationError(
+    `cover 只接受 on | off | auto | 段号（1 起），得到 "${v}"`,
+  );
 }

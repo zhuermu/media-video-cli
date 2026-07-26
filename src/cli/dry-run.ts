@@ -378,7 +378,8 @@ async function whiteboardPlan(cmd: ParsedCommand): Promise<DryRunPlan> {
           `解析文章（${article.sections.length} 段）`,
           "逐段合成配音 → 实测时长决定体裁（short/long）与排拍",
           "逐帧渲染板书 + 手势 + 字幕",
-          "旁白入轨 + 音效混音 + ffmpeg 封装",
+          "渲片头封面静帧（主视觉取文章里的图形块）",
+          "旁白入轨 + 音效混音 + ffmpeg 封装（封面拼在片头，SRT 同步后移）",
         ],
     writes: onlyStills
       ? ["<stills>/<tag>-sN-talk.png（每段一张）"]
@@ -392,9 +393,30 @@ async function whiteboardPlan(cmd: ParsedCommand): Promise<DryRunPlan> {
       预计渲染耗时: onlyStills
         ? "秒级"
         : `约 ${Math.max(1, Math.round((frames * 0.09) / 60))} 分钟`,
+      封面: coverNote(article),
       note: "时长与帧数按字数×语速粗估；真实值由实测配音时长决定",
     },
   };
+}
+
+/** 封面取哪一段的图形块（试跑时先告诉作者，免得渲完才发现取错了）. */
+function coverNote(article: {
+  cover: { kind: string; index?: number };
+  sections: ReadonlyArray<{ title: string; board?: unknown }>;
+}): string {
+  if (article.cover.kind === "off") return "关（> cover: off）";
+  if (article.cover.kind === "section") {
+    const i = article.cover.index ?? 0;
+    const sec = article.sections[i - 1];
+    if (sec === undefined) return `指定第 ${i} 段（不存在）`;
+    return sec.board === undefined
+      ? `指定第 ${i} 段「${sec.title}」——该段没有图形块，封面只有文字`
+      : `第 ${i} 段「${sec.title}」的图形块`;
+  }
+  const idx = article.sections.findIndex((s) => s.board !== undefined);
+  return idx < 0
+    ? "自动：没有任何图形块，封面只有文字"
+    : `自动取第 ${idx + 1} 段「${article.sections[idx]!.title}」的图形块`;
 }
 
 /**

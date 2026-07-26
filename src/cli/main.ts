@@ -133,6 +133,8 @@ async function dispatch(cmd: ParsedCommand): Promise<CommandResult> {
         preview: str(v, "preview"),
         fresh: v["fresh"] === true,
         noBurn: v["no-burn"] === true,
+        noCover: v["no-cover"] === true,
+        coverHold: str(v, "cover-hold"),
       });
     default:
       // Unreachable: parseCli only returns routes from the table.

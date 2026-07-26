@@ -239,7 +239,7 @@ vagent package validate <slug>
 #### `whiteboard render`
 
 ```
-vagent whiteboard render <article.md> [--kind <short|long|auto>] [--out <out>] [--frames <frames>] [--stills <stills>] [--cache <cache>] [--tag <tag>] [--persona <persona>] [--assets <assets>] [--arm <cuff|extend>] [--background <plain|grid|lined|cream|texture|dots>] [--cursor <pen|hand>] [--preview <preview>] [--only-stills] [--fresh] [--no-burn]
+vagent whiteboard render <article.md> [--kind <short|long|auto>] [--out <out>] [--frames <frames>] [--stills <stills>] [--cache <cache>] [--tag <tag>] [--persona <persona>] [--assets <assets>] [--arm <cuff|extend>] [--background <dark-grid|dark|plain|grid|lined|cream|texture|dots>] [--cursor <pen|hand>] [--preview <preview>] [--only-stills] [--fresh] [--no-burn] [--cover-hold <cover-hold>] [--no-cover]
 ```
 
 Markdown → 白板讲解视频（配音 + 手写板书 + 手势 + 字幕）；体裁默认按实测配音总时长自动判定（代价：贵，先 --dry-run）
@@ -248,28 +248,31 @@ Markdown → 白板讲解视频（配音 + 手写板书 + 手势 + 字幕）；�
 | -------------- | -------------------------------------------------------------------------------------------------------- |
 | `<article.md>` | 白板视频脚本（写法见 docs/whiteboard.md）（例：`./experiments/whiteboard-poc/article-graph-vs-loop.md`） |
 
-| 参数            | 值域                                               | 必填 | 默认                                      | 说明                                                                                    |
-| --------------- | -------------------------------------------------- | ---- | ----------------------------------------- | --------------------------------------------------------------------------------------- |
-| `--kind`        | short \| long \| auto                              | 否   | auto                                      | 体裁：short=竖版短片，long=横版长教程，auto=按实测配音总时长判定                        |
-| `--out`         | 字符串                                             | 否   | 文章所在目录下的 out/                     | 产物目录（mp4 / srt / 中间音轨）                                                        |
-| `--frames`      | 字符串                                             | 否   | 文章所在目录下的 frames-<文章名>/         | 帧序列目录（p-%05d.png）                                                                |
-| `--stills`      | 字符串                                             | 否   | 文章所在目录下的 stills/                  | 关键帧目录（--only-stills 用）                                                          |
-| `--cache`       | 字符串                                             | 否   | 文章所在目录下的 cache/tts/               | TTS 落盘缓存目录                                                                        |
-| `--tag`         | 字符串                                             | 否   | 文章名（不含扩展名）                      | 产物文件名前缀                                                                          |
-| `--persona`     | 字符串                                             | 否   | matt                                      | 手势 persona（assets/sparkol/ 下的目录名）（例：`suneeta`）                             |
-| `--assets`      | 字符串                                             | 否   | 仓库内 assets/                            | 素材根目录（其下按约定找 sparkol/ 与 manypixels/）                                      |
-| `--arm`         | cuff \| extend                                     | 否   | 按画幅自动（横版 extend / 竖版 cuff）     | 手臂收尾方式：cuff=袖口切断，extend=接出画幅                                            |
-| `--background`  | plain \| grid \| lined \| cream \| texture \| dots | 否   | 文章的 > background: 指令，都没写则 plain | 板面底纹                                                                                |
-| `--cursor`      | pen \| hand                                        | 否   | hand                                      | 画笔光标：hand=手拿笔（有擦除/搬运/点指手势），pen=只有一支笔                           |
-| `--preview`     | 正数秒                                             | 否   | —                                         | 试看档：只渲开头这么多秒（帧/旁白/音效/字幕同一上限），产物带 -preview 后缀（例：`40`） |
-| `--only-stills` | 开关                                               | 否   | —                                         | 只出关键帧目视复核版式（几秒出结果），不渲整片                                          |
-| `--fresh`       | 开关                                               | 否   | —                                         | 从零重渲；默认续跑（已存在的帧跳过）                                                    |
-| `--no-burn`     | 开关                                               | 否   | —                                         | 字幕不烧进画面（SRT 始终旁挂输出）                                                      |
+| 参数            | 值域                                                                    | 必填 | 默认                                                    | 说明                                                                                    |
+| --------------- | ----------------------------------------------------------------------- | ---- | ------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| `--kind`        | short \| long \| auto                                                   | 否   | auto                                                    | 体裁：short=竖版短片，long=横版长教程，auto=按实测配音总时长判定                        |
+| `--out`         | 字符串                                                                  | 否   | 文章所在目录下的 out/                                   | 产物目录（mp4 / srt / 中间音轨）                                                        |
+| `--frames`      | 字符串                                                                  | 否   | 文章所在目录下的 frames-<文章名>/                       | 帧序列目录（p-%05d.png）                                                                |
+| `--stills`      | 字符串                                                                  | 否   | 文章所在目录下的 stills/                                | 关键帧目录（--only-stills 用）                                                          |
+| `--cache`       | 字符串                                                                  | 否   | 文章所在目录下的 cache/tts/                             | TTS 落盘缓存目录                                                                        |
+| `--tag`         | 字符串                                                                  | 否   | 文章名（不含扩展名）                                    | 产物文件名前缀                                                                          |
+| `--persona`     | 字符串                                                                  | 否   | matt                                                    | 手势 persona（assets/sparkol/ 下的目录名）（例：`suneeta`）                             |
+| `--assets`      | 字符串                                                                  | 否   | 仓库内 assets/                                          | 素材根目录（其下按约定找 sparkol/ 与 manypixels/）                                      |
+| `--arm`         | cuff \| extend                                                          | 否   | 按画幅自动（横版 extend / 竖版 cuff）                   | 手臂收尾方式：cuff=袖口切断，extend=接出画幅                                            |
+| `--background`  | dark-grid \| dark \| plain \| grid \| lined \| cream \| texture \| dots | 否   | 文章的 > background: 指令，都没写则 dark-grid（深色板） | 板面底纹（dark / dark-grid 是深色板：短视频平台的白色 UI 在白板上看不清）               |
+| `--cursor`      | pen \| hand                                                             | 否   | hand                                                    | 画笔光标：hand=手拿笔（有擦除/搬运/点指手势），pen=只有一支笔                           |
+| `--preview`     | 正数秒                                                                  | 否   | —                                                       | 试看档：只渲开头这么多秒（帧/旁白/音效/字幕同一上限），产物带 -preview 后缀（例：`40`） |
+| `--only-stills` | 开关                                                                    | 否   | —                                                       | 只出关键帧目视复核版式（几秒出结果），不渲整片                                          |
+| `--fresh`       | 开关                                                                    | 否   | —                                                       | 从零重渲；默认续跑（已存在的帧跳过）                                                    |
+| `--no-burn`     | 开关                                                                    | 否   | —                                                       | 字幕不烧进画面（SRT 始终旁挂输出）                                                      |
+| `--cover-hold`  | 秒                                                                      | 否   | 2.5                                                     | 片头封面定格秒数（0–10）（例：`3`）                                                     |
+| `--no-cover`    | 开关                                                                    | 否   | —                                                       | 不做片头封面（文章里的 > cover: off 是另一个入口）                                      |
 
 **产物**：
 
 - `<out>/<tag>.mp4`
 - `<out>/<tag>.srt`
+- `<out>/<tag>-cover.png`
 - `<out>/<tag>-audio.m4a`
 - `<frames>/p-*.png`
 
@@ -278,6 +281,10 @@ Markdown → 白板讲解视频（配音 + 手写板书 + 手势 + 字幕）；�
 - 改过文章或版式后必须加 --fresh，否则会复用旧帧混进新片
 
 - --preview 与 --only-stills 都不产生完整成片，帧目录也分开，不会污染整片续跑
+
+- 片头封面默认开：主视觉取第一个带图形块的段，文章里可用 > cover: <段号> 指定、> subtitle: 与 > tagline: 配文案
+
+- 成片总时长 = 封面定格 + 正片；SRT 时间戳已跟着后移
 
 ### 发布登记与指标
 

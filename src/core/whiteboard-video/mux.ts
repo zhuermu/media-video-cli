@@ -191,12 +191,24 @@ export interface MuxOpts {
   fps: number;
   audioTrack: string;
   output: string;
+  /** 片头封面静帧：拼在正片前面，音轨整体后移同样的秒数. */
+  cover?: { png: string; holdSec: number };
 }
 
-/** 帧序列 + 音轨 → mp4（H.264 / yuv420p / faststart）. */
-export async function muxVideo(opts: MuxOpts): Promise<string> {
-  await ffmpeg(
-    [
+/**
+ * 纯函数：mux 的 argv。
+ *
+ * 封面是**拼在时间轴最前面**，不是插进帧序列——插帧要平移所有帧号，续跑
+ * （已渲的帧按文件名复用）会当场错位。concat 在同一次编码里完成，帧本来就是
+ * PNG，没有二次编码损失。
+ *
+ * 音轨用 `-itsoffset` 整体后移 hold 秒（而不是在音轨里补静音）：静音补在文件里
+ * 会污染那份可复用的音轨产物，改 hold 就得重合一次音。
+ */
+export function buildMuxArgs(opts: MuxOpts): string[] {
+  const cover = opts.cover;
+  if (cover === undefined) {
+    return [
       "ffmpeg",
       "-y",
       "-v",
@@ -207,25 +219,64 @@ export async function muxVideo(opts: MuxOpts): Promise<string> {
       opts.framePattern,
       "-i",
       opts.audioTrack,
-      "-c:v",
-      "libx264",
-      "-preset",
-      "medium",
-      "-crf",
-      "18",
-      "-pix_fmt",
-      "yuv420p",
-      "-c:a",
-      "aac",
-      "-b:a",
-      "192k",
+      ...VIDEO_CODEC,
       "-shortest",
       "-movflags",
       "+faststart",
       opts.output,
-    ],
-    "合成",
-  );
+    ];
+  }
+  return [
+    "ffmpeg",
+    "-y",
+    "-v",
+    "error",
+    "-loop",
+    "1",
+    "-t",
+    cover.holdSec.toFixed(3),
+    "-i",
+    cover.png,
+    "-framerate",
+    String(opts.fps),
+    "-i",
+    opts.framePattern,
+    "-itsoffset",
+    cover.holdSec.toFixed(3),
+    "-i",
+    opts.audioTrack,
+    "-filter_complex",
+    `[0:v]fps=${opts.fps},format=yuv420p[cv];[1:v]format=yuv420p[mv];[cv][mv]concat=n=2:v=1:a=0[v]`,
+    "-map",
+    "[v]",
+    "-map",
+    "2:a",
+    ...VIDEO_CODEC,
+    "-movflags",
+    "+faststart",
+    opts.output,
+  ];
+}
+
+/** 视频/音频编码参数（两条路径共用，避免封面档和普通档编码不一致）. */
+const VIDEO_CODEC = [
+  "-c:v",
+  "libx264",
+  "-preset",
+  "medium",
+  "-crf",
+  "18",
+  "-pix_fmt",
+  "yuv420p",
+  "-c:a",
+  "aac",
+  "-b:a",
+  "192k",
+] as const;
+
+/** 帧序列 + 音轨（+ 可选片头封面）→ mp4（H.264 / yuv420p / faststart）. */
+export async function muxVideo(opts: MuxOpts): Promise<string> {
+  await ffmpeg(buildMuxArgs(opts), "合成");
   return opts.output;
 }
 
@@ -238,7 +289,17 @@ export async function muxVideo(opts: MuxOpts): Promise<string> {
 export async function writeSrt(
   storyboard: Storyboard,
   path: string,
+  /** 片头封面占用的秒数：SRT 整体后移，否则字幕比画面早一个封面的时长. */
+  offsetSec = 0,
 ): Promise<string> {
-  await writeFile(path, toSrt(storyboard.subtitles), "utf8");
+  const lines =
+    offsetSec === 0
+      ? storyboard.subtitles
+      : storyboard.subtitles.map((l) => ({
+          ...l,
+          t0: l.t0 + offsetSec,
+          t1: l.t1 + offsetSec,
+        }));
+  await writeFile(path, toSrt(lines), "utf8");
   return path;
 }

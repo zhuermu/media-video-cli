@@ -44,6 +44,8 @@ export interface WhiteboardRenderArgs {
   onlyStills: boolean;
   preview?: string;
   fresh: boolean;
+  coverHold?: string;
+  noCover?: boolean;
   noBurn: boolean;
   arm?: string;
 }
@@ -127,6 +129,16 @@ export async function runWhiteboardRender(
   if (args.cache !== undefined) opts.cacheDir = args.cache;
   if (args.tag !== undefined) opts.tag = args.tag;
   if (args.persona !== undefined) opts.persona = args.persona;
+  if (args.noCover === true) opts.noCover = true;
+  if (args.coverHold !== undefined) {
+    const sec = Number(args.coverHold);
+    if (!Number.isFinite(sec)) {
+      throw new ValidationError(
+        `--cover-hold 需要一个秒数，得到 "${args.coverHold}"`,
+      );
+    }
+    opts.coverHoldSec = sec;
+  }
   if (args.preview !== undefined) {
     const sec = Number(args.preview);
     if (!Number.isFinite(sec) || sec <= 0) {
@@ -158,6 +170,9 @@ export async function runWhiteboardRender(
     text:
       `${r.mp4}\n` +
       `字幕：${r.srt}\n` +
+      (r.cover === undefined
+        ? ""
+        : `封面：${r.cover}（片头定格 ${r.coverHoldSec}s）\n`) +
       `${r.width}×${r.height} ${r.kind === "long" ? "横版长教程" : "竖版短片"}，` +
       `${mmss(r.durationSec)}，${r.sections} 段，` +
       `${r.totalFrames} 帧（新渲 ${r.renderedFrames}，复用 ${r.reusedFrames}）\n`,

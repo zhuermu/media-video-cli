@@ -24,11 +24,14 @@ import { join } from "node:path";
 
 import { parseArticle } from "./article";
 import type { Article } from "./article";
+import type { BoardBackground } from "./board";
 import { composeStoryboard } from "./compose";
+import { coverSvg, pickCoverBlock } from "./cover";
 import type { SpokenSection, Storyboard } from "./compose";
-import { resolveRequest } from "./config";
+import { resolveRequest, themedInk } from "./config";
 import type { WhiteboardVideoOptions, WhiteboardVideoRequest } from "./config";
 import { loadPersona } from "@core/persona";
+import type { Persona } from "@core/persona";
 import { resolveFormat } from "./format";
 import type { FormatSpec } from "./format";
 import { listGestures, loadHandKit } from "./gestures";
@@ -45,6 +48,7 @@ import { silent } from "./log";
 import {
   assertFramesComplete,
   frameSvgFactory,
+  rasterize,
   renderFrames,
   renderStills,
 } from "./render";
@@ -56,6 +60,10 @@ import { findVoice } from "./voices";
 export interface PreparedVideo {
   request: WhiteboardVideoRequest;
   article: Article;
+  /** 作者人设；缺人设文件时 undefined（封面与片内签名都跳过）. */
+  persona?: Persona;
+  /** 生效的板面（CLI > 文章 > 默认）；封面与主题色都按它取. */
+  background: BoardBackground;
   spoken: SpokenSection[];
   format: FormatSpec;
   kit: HandKit;
@@ -185,13 +193,23 @@ export async function prepareVideo(
   );
 
   // ── 5. 版式 + 排片 ──
+  //
+  // 板面深浅在这里才能定死：config 解析参数时还没读文章，而 `> background:`
+  // 也能翻主题。墨色必须跟着**生效的**板面走——文章写了白板却拿到深板的浅墨，
+  // 整片的字会全部消失（显式 --ink / --accent 仍然优先）。
+  const bg = opts.background ?? article.background ?? request.background;
+  const themed = themedInk(bg);
+  const ink = opts.ink ?? themed.ink;
+  const accent = opts.accent ?? themed.accent;
+
   const storyboard = composeStoryboard({
     article,
     spoken,
     format,
     kit,
-    ink: request.ink,
-    accent: request.accent,
+    ink,
+    accent,
+    background: bg,
     illustrationsDir: request.assets.illustrations,
     ...(persona === undefined ? {} : { persona }),
     log,
@@ -206,22 +224,36 @@ export async function prepareVideo(
     format,
     kit,
     title: article.title,
-    ink: request.ink,
-    accent: request.accent,
+    ink,
+    accent,
     burnSubtitles: request.burnSubtitles,
     // 底纹优先级：CLI --background > 文章 `> background:` > 默认。
     // CLI 在上是因为它是"这次渲染"的意图，文章里的是"这篇文章"的意图；
     // 想临时换底纹试观感时不该被迫改文章。
-    background: opts.background ?? article.background ?? request.background,
+    background: bg,
   });
 
-  return { request, article, spoken, format, kit, storyboard, frameSvg };
+  return {
+    request,
+    article,
+    spoken,
+    format,
+    kit,
+    storyboard,
+    frameSvg,
+    background: bg,
+    ...(persona === undefined ? {} : { persona }),
+  };
 }
 
 /** 一次成片的产物清单. */
 export interface WhiteboardVideoResult {
   mp4: string;
   srt: string;
+  /** 片头封面 PNG（也可直接当平台封面）；关掉时 undefined. */
+  cover?: string;
+  /** 封面定格秒数（成片总时长 = 定格 + 正片）. */
+  coverHoldSec?: number;
   kind: FormatSpec["kind"];
   width: number;
   height: number;
@@ -277,6 +309,9 @@ export async function renderWhiteboardVideo(
     log,
   });
 
+  // 片头封面：一张静帧拼在正片前面，同一张也是发布包要用的封面
+  const cover = await renderCoverPng(prepared, log);
+
   const srt = await writeSrt(
     totalSec < storyboard.totalSec
       ? {
@@ -285,12 +320,16 @@ export async function renderWhiteboardVideo(
         }
       : storyboard,
     join(request.outDir, `${request.tag}.srt`),
+    cover === undefined ? 0 : request.coverHoldSec,
   );
   const mp4 = await muxVideo({
     framePattern: frames.pattern,
     fps: frames.fps,
     audioTrack,
     output: join(request.outDir, `${request.tag}.mp4`),
+    ...(cover === undefined
+      ? {}
+      : { cover: { png: cover, holdSec: request.coverHoldSec } }),
   });
 
   return {
@@ -299,12 +338,57 @@ export async function renderWhiteboardVideo(
     kind: format.kind,
     width: format.layout.width,
     height: format.layout.height,
-    durationSec: totalSec,
+    ...(cover === undefined
+      ? {}
+      : { cover, coverHoldSec: request.coverHoldSec }),
+    durationSec:
+      cover === undefined ? totalSec : totalSec + request.coverHoldSec,
     sections: prepared.article.sections.length,
     totalFrames: frames.totalFrames,
     renderedFrames: frames.rendered,
     reusedFrames: frames.skipped,
   };
+}
+
+/**
+ * 片头封面 → PNG（关掉则返回 undefined）。
+ *
+ * 金句缺省时退回片尾 note 块的文本：那句话本来就是作者写给"带走一句"的，
+ * 比让作者再写一遍封面文案更省事，也保证封面和片尾说的是同一句。
+ */
+export async function renderCoverPng(
+  prepared: PreparedVideo,
+  log: Log = silent,
+): Promise<string | undefined> {
+  const { request, article, format } = prepared;
+  if (request.noCover || article.cover.kind === "off") return undefined;
+
+  const path = join(request.outDir, `${request.tag}-cover.png`);
+  const svg = coverSvg({
+    title: article.title,
+    width: format.layout.width,
+    height: format.layout.height,
+    background: request.background === undefined ? "plain" : request.background,
+    block: pickCoverBlock(article.sections, article.cover),
+    ...(article.subtitle === undefined ? {} : { subtitle: article.subtitle }),
+    ...(coverTagline(article) === undefined
+      ? {}
+      : { tagline: coverTagline(article)! }),
+    ...(prepared.persona === undefined ? {} : { persona: prepared.persona }),
+  });
+  await rasterize(svg, path);
+  log(`  封面 ${path}`);
+  return path;
+}
+
+/** 封面金句：`> tagline:` 优先，否则取最后一个 note 块的文本. */
+function coverTagline(article: Article): string | undefined {
+  if (article.tagline !== undefined) return article.tagline;
+  for (let i = article.sections.length - 1; i >= 0; i -= 1) {
+    const board = article.sections[i]!.board;
+    if (board !== undefined && board.kind === "note") return board.text;
+  }
+  return undefined;
 }
 
 /** 只出关键帧（目视复核用，几秒出结果）. */

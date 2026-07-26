@@ -442,9 +442,18 @@ export const ROUTES: RouteSpec[] = [
       },
       background: {
         type: "string",
-        desc: "板面底纹",
-        values: ["plain", "grid", "lined", "cream", "texture", "dots"],
-        default: "文章的 > background: 指令，都没写则 plain",
+        desc: "板面底纹（dark / dark-grid 是深色板：短视频平台的白色 UI 在白板上看不清）",
+        values: [
+          "dark-grid",
+          "dark",
+          "plain",
+          "grid",
+          "lined",
+          "cream",
+          "texture",
+          "dots",
+        ],
+        default: "文章的 > background: 指令，都没写则 dark-grid（深色板）",
       },
       cursor: {
         type: "string",
@@ -470,6 +479,17 @@ export const ROUTES: RouteSpec[] = [
         type: "boolean",
         desc: "字幕不烧进画面（SRT 始终旁挂输出）",
       },
+      "cover-hold": {
+        type: "string",
+        desc: "片头封面定格秒数（0–10）",
+        default: "2.5",
+        example: "3",
+        format: "秒",
+      },
+      "no-cover": {
+        type: "boolean",
+        desc: "不做片头封面（文章里的 > cover: off 是另一个入口）",
+      },
     },
     summary:
       "Markdown → 白板讲解视频（配音 + 手写板书 + 手势 + 字幕）；体裁默认按实测配音总时长自动判定",
@@ -477,6 +497,7 @@ export const ROUTES: RouteSpec[] = [
     produces: [
       "<out>/<tag>.mp4",
       "<out>/<tag>.srt",
+      "<out>/<tag>-cover.png",
       "<out>/<tag>-audio.m4a",
       "<frames>/p-*.png",
     ],
@@ -486,6 +507,8 @@ export const ROUTES: RouteSpec[] = [
     notes: [
       "改过文章或版式后必须加 --fresh，否则会复用旧帧混进新片",
       "--preview 与 --only-stills 都不产生完整成片，帧目录也分开，不会污染整片续跑",
+      "片头封面默认开：主视觉取第一个带图形块的段，文章里可用 > cover: <段号> 指定、> subtitle: 与 > tagline: 配文案",
+      "成片总时长 = 封面定格 + 正片；SRT 时间戳已跟着后移",
     ],
   },
   {

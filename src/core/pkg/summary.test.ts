@@ -1,5 +1,5 @@
 /**
- * Pure-function tests for the SUMMARY.md checklist (Q2=A): fixed 9 items,
+ * Pure-function tests for the SUMMARY.md checklist (Q2=A): fixed 10 items,
  * aigc-declare prominent top + bold (BR-U5-6/C11), register command footer
  * interpolation.
  */
@@ -37,10 +37,10 @@ const manifest: ManifestV1 = {
 };
 
 describe("buildUploadChecklist", () => {
-  test("fixed 9 items, aigc-declare first and the only prominent one", () => {
+  test("fixed 10 items, aigc-declare first and the only prominent one", () => {
     const checklist = buildUploadChecklist("videos/test/package");
 
-    expect(checklist.items).toHaveLength(9);
+    expect(checklist.items).toHaveLength(10);
     expect(checklist.items[0]!.id).toBe("aigc-declare");
     expect(checklist.items[0]!.prominent).toBe(true);
     expect(checklist.items.filter((i) => i.prominent)).toHaveLength(1);
@@ -55,24 +55,36 @@ describe("buildUploadChecklist", () => {
       "tags-check",
       "materials-review",
       "publish-time",
+      "follow-cta",
     ];
     expect(checklist.items.map((i) => i.id)).toEqual(expectedIds);
   });
 });
 
 describe("renderSummary", () => {
-  test("9 checkboxes, first is the bold AIGC reminder (BR-U5-6)", () => {
+  test("10 checkboxes, first is the bold AIGC reminder (BR-U5-6)", () => {
     const text = renderSummary(
       buildUploadChecklist("videos/test/package"),
       manifest,
     );
 
     const boxes = text.split("\n").filter((line) => line.startsWith("- [ ]"));
-    expect(boxes).toHaveLength(9);
+    expect(boxes).toHaveLength(10);
     expect(boxes[0]).toStartWith("- [ ] **");
     expect(boxes[0]).toContain("AIGC");
     // Only the prominent item is bold.
     expect(boxes.filter((line) => line.includes("**"))).toHaveLength(1);
+  });
+
+  test("关注引导是一项普通检查项（不抢 AIGC 的醒目位）", () => {
+    const text = renderSummary(
+      buildUploadChecklist("videos/test/package"),
+      manifest,
+    );
+    const line = text.split("\n").find((l) => l.includes("关注引导"));
+    expect(line).toBeDefined();
+    expect(line).not.toContain("**");
+    expect(line).toContain("author.cta");
   });
 
   test("probe facts in header, register command footer interpolates packageRef", () => {

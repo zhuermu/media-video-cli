@@ -114,6 +114,30 @@ export async function validatePackage(
   // ---- Layer 2: structure (fields, types, frontmatter consistency) ----
   await assertStructure(manifest, pkg, violations);
 
+  // ---- Layer 2b: author（可选字段：缺失合法，存在即校验） ----
+  //
+  // 署名是"配了就必须完整"的东西：pen_name 有、cta 空，成片会署名却不引导关注，
+  // 而这种半截状态只有人工核对时才看得出来。
+  const author = get(manifest, ["author"]);
+  if (author !== undefined) {
+    if (
+      typeof author !== "object" ||
+      author === null ||
+      Array.isArray(author)
+    ) {
+      violations.push({ field: "author", problem: "必须是对象" });
+    } else {
+      for (const key of ["pen_name", "bio", "cta"]) {
+        if (!isNonEmptyString((author as Record<string, unknown>)[key])) {
+          violations.push({
+            field: `author.${key}`,
+            problem: "必须是非空字符串（配了人设就要完整署名）",
+          });
+        }
+      }
+    }
+  }
+
   // ---- Layer 3: constant (must_declare === true, C11) ----
   const mustDeclare = get(manifest, ["aigc_declaration", "must_declare"]);
   if (mustDeclare !== true) {

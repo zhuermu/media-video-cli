@@ -24,6 +24,7 @@ import { join } from "node:path";
 
 import type { MediaInfo } from "@adapters/ffmpeg";
 import { ContractViolationError, ValidationError } from "@core/errors";
+import { loadPersona } from "@core/persona";
 import type { VideoDir } from "@core/workdir";
 import {
   assemble,
@@ -309,6 +310,23 @@ async function assembleValid() {
   return { dir, meta, pkg };
 }
 
+describe("assemble 署名", () => {
+  test("给了人设就写 manifest.author（CTA 取第一条候选）", async () => {
+    const { dir, meta } = makeFixture();
+    const pkg = await assemble(dir, meta, {
+      ...offlineOptions(),
+      persona: loadPersona()!,
+    });
+    const manifest = JSON.parse(
+      readFileSync(pkg.manifestPath, "utf8"),
+    ) as ManifestV1;
+    expect(manifest.author?.pen_name).toBe("二木");
+    expect(manifest.author?.cta.length ?? 0).toBeGreaterThan(0);
+    // 署名进了包，契约仍然完整
+    expect(await validatePackage(pkg)).toEqual({ valid: true, violations: [] });
+  });
+});
+
 describe("validatePackage", () => {
   test("GOLDEN CASE (FR-4 AC): valid package passes; deleting aigc-declaration.md fails at layer 1 on aigc_declaration.path", async () => {
     const { pkg } = await assembleValid();
@@ -365,6 +383,47 @@ describe("validatePackage", () => {
     expect(report.violations).toContainEqual({
       field: "platform_metadata.shipinhao.titles",
       problem: expect.stringContaining("不一致"),
+    });
+  });
+
+  test("author 缺失照常通过（历史包不能因为加了署名而变不合格）", async () => {
+    const { pkg } = await assembleValid();
+    const manifest = JSON.parse(
+      readFileSync(pkg.manifestPath, "utf8"),
+    ) as ManifestV1 & { author?: unknown };
+    expect(manifest.author).toBeUndefined();
+    expect(await validatePackage(pkg)).toEqual({ valid: true, violations: [] });
+  });
+
+  test("author 存在即校验：三个字段齐全通过，半截的逐项报错", async () => {
+    const { pkg } = await assembleValid();
+    const raw = JSON.parse(readFileSync(pkg.manifestPath, "utf8")) as Record<
+      string,
+      unknown
+    >;
+
+    raw["author"] = {
+      pen_name: "二木",
+      bio: "亚马逊解决方案架构师",
+      cta: "关注二木 · 聊大模型落地",
+    };
+    writeFileSync(pkg.manifestPath, JSON.stringify(raw));
+    expect(await validatePackage(pkg)).toEqual({ valid: true, violations: [] });
+
+    raw["author"] = { pen_name: "二木", bio: "", cta: "  " };
+    writeFileSync(pkg.manifestPath, JSON.stringify(raw));
+    const report = await validatePackage(pkg);
+    expect(report.valid).toBe(false);
+    const fields = report.violations.map((v) => v.field);
+    expect(fields).toContain("author.bio");
+    expect(fields).toContain("author.cta");
+    expect(fields).not.toContain("author.pen_name");
+
+    raw["author"] = "二木";
+    writeFileSync(pkg.manifestPath, JSON.stringify(raw));
+    expect((await validatePackage(pkg)).violations).toContainEqual({
+      field: "author",
+      problem: "必须是对象",
     });
   });
 

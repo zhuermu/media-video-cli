@@ -54,6 +54,19 @@ export interface PlatformMetadataEntry {
   description: string;
 }
 
+/**
+ * 作者署名块（**可选**字段）。
+ *
+ * 可选是刻意的：没有配人设的历史发布包必须照旧验得过。必填集合与退出码表是锁定
+ * 契约，不能因为加了署名就让旧包变成不合格。
+ */
+export interface ManifestAuthor {
+  pen_name: string;
+  bio: string;
+  /** 关注引导文案（写进简介或评论区首条）. */
+  cta: string;
+}
+
 /** manifest.json v1 — the machine gate's single input (FR-4.2). */
 export interface ManifestV1 {
   schema_version: "1";
@@ -70,6 +83,8 @@ export interface ManifestV1 {
   aigc_declaration: { path: string; must_declare: true };
   materials_manifest: { path: string; entryCount: number };
   publish_advice: { path: string };
+  /** 作者署名与关注引导（配了人设才有；见 core/persona）. */
+  author?: ManifestAuthor;
 }
 
 // ---- UploadChecklist (SUMMARY.md 检查单, Q2=A structured value object) ----
@@ -84,7 +99,8 @@ export type ChecklistItemId =
   | "tags-check"
   | "aigc-declare"
   | "materials-review"
-  | "publish-time";
+  | "publish-time"
+  | "follow-cta";
 
 /** One human-checkable item; `prominent` renders top + bold (BR-U5-6). */
 export interface ChecklistItem {

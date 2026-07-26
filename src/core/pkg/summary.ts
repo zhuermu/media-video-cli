@@ -58,6 +58,12 @@ export function buildUploadChecklist(packageRef: string): UploadChecklist {
       label: "按 publish-advice.md 选择发布时间",
       prominent: false,
     },
+    {
+      id: "follow-cta",
+      label:
+        "简介结尾或评论区首条带关注引导（文案见 manifest.json 的 author.cta）",
+      prominent: false,
+    },
   ];
   return { packageRef, items };
 }

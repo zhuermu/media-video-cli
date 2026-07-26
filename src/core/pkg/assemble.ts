@@ -37,6 +37,8 @@ import type { MediaInfo } from "@adapters/ffmpeg";
 import { probe, runCaptureStdout, runFfmpeg } from "@adapters/ffmpeg";
 import { DEFAULT_TTS_VOICES } from "@core/config";
 import { IoError, ValidationError } from "@core/errors";
+import { authorBlock } from "@core/persona";
+import type { Persona } from "@core/persona";
 import { markStep, type VideoDir } from "@core/workdir";
 
 import {
@@ -73,6 +75,11 @@ export interface AssembleOptions {
   ffmpegPath?: string;
   /** Provenance overrides; unset fields resolve from env/defaults. */
   provenance?: Partial<MaterialsProvenance>;
+  /**
+   * 作者人设（见 core/persona）。给了就把署名与关注引导写进 manifest.author；
+   * 不给则完全不写那个字段——历史包与"不想署名"两种情况共用同一条路径。
+   */
+  persona?: Persona;
 }
 
 /**
@@ -287,6 +294,11 @@ export async function assemble(
         entryCount: countManifestEntries(materialsContent),
       },
       publish_advice: { path: PKG_FILES.publishAdvice },
+      // 人设缺失时**整个字段不写**，而不是写空对象：validate 里"存在即校验"
+      // 的规则才好写，也不会让人以为署名配了但内容是空的。
+      ...(options.persona === undefined
+        ? {}
+        : { author: authorBlock(options.persona) }),
     };
     await writeFile(
       join(tmpPath, PKG_FILES.manifest),

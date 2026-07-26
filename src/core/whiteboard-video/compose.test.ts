@@ -76,6 +76,7 @@ function article(sections: Section[]): Article {
     kind: "short",
     castAuthored: false,
     signature: true,
+    cover: { kind: "off" },
   };
 }
 

@@ -27,7 +27,10 @@ import type { Article, Section } from "./article";
 import { W, checklist, markerTextEl, textWidth, titleBlock } from "./blocks";
 import { cellsBounds, planCamera, serpentineCells } from "./canvas";
 import { markerStrokesEl } from "./marker";
-import { PALETTE } from "./palette";
+import { PALETTE, rolesFor } from "./palette";
+import type { PaletteRoles } from "./palette";
+import { isDarkBackground } from "./board";
+import type { BoardBackground } from "./board";
 import type { Cell } from "./canvas";
 import { boardBeats } from "./board-block";
 import { LINE_W, curvedArrow } from "./strokes";
@@ -136,6 +139,13 @@ export interface ComposeInput {
   kit: HandKit;
   ink: string;
   accent: string;
+  /**
+   * 板面背景（决定亮色/深色两套语义色）。
+   *
+   * 排版层需要知道深浅，不只是渲染层：连接弧线、注解、状态徽章的颜色都要
+   * 跟着换，而这些颜色是在排版时就写进元素里的。
+   */
+  background?: BoardBackground;
   /** ManyPixels 插画库根目录. */
   illustrationsDir: string;
   /**
@@ -192,28 +202,56 @@ interface BuiltSection {
 /**
  * 每一拍希望开始的时刻（相对本段起点）。
  *
- * 优先**贴到台词的句首**：一句新话开始的同时板上多出一件东西，读起来像
- * 有人在讲边写；均匀摊开则会出现"写到一半话题已经换了"。句子数少于拍数
- * 时退回均匀分布。
+ * ## 规则：按序分配到句子，只延后不提前
+ *
+ * n 拍分给 m 句，第 i 拍归到第 `floor(i·m/n)` 句——**单调、不重复吸附**。
+ * 同一句里分到多拍时，在这句的时长内均分。
+ *
+ * 早先的做法是"每拍各自取离均匀目标最近的句首"，它有两个会直接被观众看出来
+ * 的毛病：
+ *
+ * 1. **多拍吸到同一句首**。6 拍 2 句时六个目标全落到两个时刻，于是讲第一句
+ *    的时候板上一次冒出三条要点，后面一大段没东西可看。
+ * 2. **可能提前**。"最近的句首"允许把一拍拉到上一句开头——话还没说到，结论
+ *    已经写在板上了。讲解片里这是最伤的一种不同步：观众读完了才听到你讲，
+ *    再讲就成了复述。
+ *
+ * 所以这里只允许**延后到句首**（宁可讲了半句才落笔），且拍序与句序严格同向。
+ * 笔速不参与调整——书写速度是感知常量，忽快忽慢比不同步更难看（见模块头）。
  */
 export function beatTargets(
   lines: readonly SpokenLine[],
   count: number,
   audioSec: number,
 ): number[] {
+  if (count <= 0) return [];
   const usable = audioSec * BEAT_WINDOW;
-  const even = Array.from({ length: count }, (_, i) => (i / count) * usable);
-  if (lines.length < 2) return even;
-  const cueStarts = lines.map((l) => l.offset).filter((o) => o < usable);
-  if (cueStarts.length === 0) return even;
-  return even.map((target) => {
-    // 取离均匀目标最近的句首
-    let best = cueStarts[0]!;
-    for (const c of cueStarts) {
-      if (Math.abs(c - target) < Math.abs(best - target)) best = c;
-    }
-    return best;
-  });
+  const even = (i: number): number => (i / count) * usable;
+  // 只保留落在可排窗口内的句子；一句都没有（或只有一句）就退回均匀分布
+  const starts = lines.map((l) => l.offset).filter((o) => o < usable);
+  if (starts.length < 2) {
+    return Array.from({ length: count }, (_, i) => even(i));
+  }
+
+  const m = starts.length;
+  const out: number[] = [];
+  // 最后一句的可用区间按**配音全长**算，不按 BEAT_WINDOW 截。窗口是为段尾运镜
+  // 留白用的，可最后一句要是起得晚（比如 21.1s 处、配音 26s），拿窗口当终点
+  // 只剩 0.2s，分到它的几拍会挤成同时出现——那正是这套算法要消除的毛病。
+  const tail = audioSec * 0.94;
+  for (let i = 0; i < count; i += 1) {
+    const li = Math.min(m - 1, Math.floor((i * m) / count));
+    const lineStart = starts[li]!;
+    const lineEnd = starts[li + 1] ?? Math.max(usable, tail);
+    // 这一句分到几拍、当前是其中第几拍
+    const first = Math.ceil((li * count) / m);
+    const next = Math.ceil(((li + 1) * count) / m);
+    const share = Math.max(1, next - first);
+    const k = Math.min(share - 1, Math.max(0, i - first));
+    const span = Math.max(0, lineEnd - lineStart);
+    out.push(lineStart + (span * k) / share);
+  }
+  return out;
 }
 
 /** 解析一张扁平插画（解析失败就返回 null，让版式退化成纯文字）. */
@@ -322,12 +360,14 @@ function buildSection(
     kit: HandKit;
     ink: string;
     accent: string;
+    /** 语义色（亮/深两套，见 palette 的 `rolesFor`）. */
+    roles: PaletteRoles;
     images: ImageLoader;
     illustrationsDir: string;
     log: Log;
   },
 ): BuiltSection {
-  const { L, ctx, kit, ink, accent, images, log } = cx;
+  const { L, ctx, kit, ink, accent, roles, images, log } = cx;
   const idp = `s${idx}`;
   const ils: FlatIllustration[] = [];
   const T = L.type;
@@ -441,7 +481,7 @@ function buildSection(
           {
             t0: hypo.t1 + 0.28,
             dur: 0.42,
-            color: PALETTE.danger,
+            color: roles.danger,
             width: W.body,
             seed: `${idp}sk`,
             amp: 2.2,
@@ -514,6 +554,7 @@ function buildSection(
       ink,
       bodySize: T.body,
       idp: `${idp}C`,
+      roles,
     });
     for (const [bi, b] of cBeats.entries()) {
       beats.push(bi === 0 ? { ...b, cue: "pop" } : b);
@@ -546,6 +587,7 @@ function buildSection(
       ink,
       bodySize: T.body,
       idp: `${idp}B`,
+      roles,
     });
     for (const [bi, b] of bBeats.entries()) {
       beats.push(bi === 0 ? { ...b, cue: "pop" } : b);
@@ -693,6 +735,7 @@ function linkEl(
   t0: number,
   dur: number,
   idp: string,
+  muted: string,
 ): GestureEl {
   // 起点在上一格内容区的右下/左下角，终点在下一格标题的左上方
   const rightward = to.x >= from.x;
@@ -712,7 +755,7 @@ function linkEl(
   return markerStrokesEl(paths, {
     t0,
     dur,
-    color: PALETTE.muted,
+    color: muted,
     width: LINE_W.thin,
     seed: `${idp}link`,
     amp: 2.2,
@@ -724,12 +767,17 @@ function linkEl(
 /** 分镜 + 配音 → 全片时间轴. */
 export function composeStoryboard(input: ComposeInput): Storyboard {
   const { article, spoken, format, kit, ink, accent } = input;
+  // 语义色随板面深浅整套切换：深板上 muted/primary 要提亮，否则注解与
+  // 连接线在深底上糊掉（见 palette 的 DARK_PALETTE）
+  const roles = rolesFor(isDarkBackground(input.background ?? "plain"));
   const log = input.log ?? silent;
   const L = format.layout;
-  const ctx: BlockCtx = { ink, accent, beat: BEAT, layout: L };
+  const dark = isDarkBackground(input.background ?? "plain");
+  const ctx: BlockCtx = { ink, accent, beat: BEAT, layout: L, dark };
   const images = new ImageLoader(log);
   const cx = {
     L,
+    roles,
     ctx,
     kit,
     ink,
@@ -781,6 +829,7 @@ export function composeStoryboard(input: ComposeInput): Storyboard {
           panFrom - HOLD_BEFORE_WIPE * 0.5,
           PAN_SEC * 0.8,
           `s${i}`,
+          roles.muted,
         ),
       );
     }
@@ -904,7 +953,7 @@ export function composeStoryboard(input: ComposeInput): Storyboard {
       gap: ctaSize * 0.06,
       t0: sign.t1 + 0.12,
       perChar: 0.05,
-      color: PALETTE.muted,
+      color: roles.muted,
       idp: "cta",
     });
     // 挂在 links 上而不是某一段的 els 上：links 是画布空间、**不参与按格剔除**的

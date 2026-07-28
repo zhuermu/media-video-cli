@@ -2,7 +2,8 @@
  * Offline tests for the TTS orchestration (no network, no ffmpeg): fake
  * backend injection for the retry policy (BR-U2-1), idempotent skip
  * (BR-U2-2), durations.json shape (BR-U2-3), mergeAudio duration assertion
- * (BR-U2-5), contiguity invariant, and the backend registry.
+ * (BR-U2-5), contiguity invariant, clearAudio's blast radius, and the
+ * backend registry (incl. the paid backend's fail-fast construction).
  */
 import { afterAll, describe, expect, test } from "bun:test";
 
@@ -27,6 +28,8 @@ import {
 import type { VideoDir } from "@core/workdir";
 import {
   EdgeTtsBackend,
+  MinimaxTtsBackend,
+  clearAudio,
   mergeAudio,
   SayTtsBackend,
   synthesizeScript,
@@ -327,5 +330,67 @@ describe("TTS backend registry", () => {
   test("createTtsBackend selects by AppConfig.ttsBackend name", () => {
     expect(createTtsBackend("edge")).toBeInstanceOf(EdgeTtsBackend);
     expect(createTtsBackend("say")).toBeInstanceOf(SayTtsBackend);
+  });
+
+  test("免费后端不带 usage 计数（只有收费后端记账单口径）", () => {
+    expect(TTS_BACKENDS.edge().usage).toBeUndefined();
+    expect(TTS_BACKENDS.say().usage).toBeUndefined();
+  });
+
+  test("minimax 在注册表里，且缺凭据时构造即失败（不会花钱到一半才报）", () => {
+    const saved = process.env["MINIMAX_API_KEY"];
+    delete process.env["MINIMAX_API_KEY"];
+    try {
+      expect(() => createTtsBackend("minimax")).toThrow(/MINIMAX_API_KEY/);
+      process.env["MINIMAX_API_KEY"] = "test-key-not-real";
+      const backend = createTtsBackend("minimax");
+      expect(backend).toBeInstanceOf(MinimaxTtsBackend);
+      expect(backend.id).toBe("minimax");
+      expect(backend.defaultVoice).toBe(DEFAULT_TTS_VOICES.minimax);
+      expect(backend.usage).toEqual({ characters: 0, requests: 0 });
+    } finally {
+      if (saved === undefined) delete process.env["MINIMAX_API_KEY"];
+      else process.env["MINIMAX_API_KEY"] = saved;
+    }
+  });
+});
+
+// ---- clearAudio (BR-U2-2 的显式逃生口) ---------------------------------------
+
+describe("clearAudio", () => {
+  test("只清 audio/ 下的音频产物，其他文件不动", () => {
+    const dir = makeVideoDir();
+    mkdirSync(dir.paths.audio, { recursive: true });
+    const write = (name: string): string => {
+      const path = join(dir.paths.audio, name);
+      writeFileSync(path, "x");
+      return path;
+    };
+    const seg = write("seg-00.mp3");
+    const norm = write("seg-00.norm.m4a");
+    const merged = write("merged.m4a");
+    const durations = write("durations.json");
+    const leftover = write("durations.json.tmp");
+    const keep = write("notes.txt");
+
+    const removed = clearAudio(dir);
+
+    expect(removed).toEqual([
+      "durations.json",
+      "durations.json.tmp",
+      "merged.m4a",
+      "seg-00.mp3",
+      "seg-00.norm.m4a",
+    ]);
+    for (const path of [seg, norm, merged, durations, leftover]) {
+      expect(existsSync(path)).toBe(false);
+    }
+    expect(existsSync(keep)).toBe(true);
+  });
+
+  test("audio/ 不存在时是空操作（不建目录、不报错）", () => {
+    const dir = makeVideoDir();
+    expect(clearAudio(dir)).toEqual([]);
+    expect(existsSync(dir.paths.audio)).toBe(false);
   });
 });

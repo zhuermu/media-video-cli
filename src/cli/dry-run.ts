@@ -27,8 +27,14 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 
+import {
+  PAID_TTS_BACKENDS,
+  envOrUndefined,
+  isTtsBackendName,
+} from "@core/config";
 import { ValidationError } from "@core/errors";
 import { estimateDuration, validateScript } from "@core/script";
+import { segmentFileName } from "@core/tts";
 import { load, missingArtifacts, stepDone } from "@core/workdir";
 import type { Step, VideoDir } from "@core/workdir";
 import { parseArticle } from "@core/whiteboard-video";
@@ -157,14 +163,35 @@ async function ttsPlan(cmd: ParsedCommand): Promise<DryRunPlan> {
   const dir = await load(slug, { videosRoot: cmd.videosRoot });
   requireStep(dir, "script", `vagent script validate ${slug}`);
   const s = await readScript(dir);
+  // 段文件名是零基的（seg-00.mp3 起），所以这里用 @core/tts 的命名函数而不是
+  // 手写 padStart——手写那份把"已合成"整整算错一位。
   const done = Array.from({ length: s.segments }, (_, i) =>
-    join(dir.paths.audio, `seg-${String(i + 1).padStart(2, "0")}.mp3`),
+    join(dir.paths.audio, segmentFileName(i)),
   ).filter((p) => existsSync(p)).length;
-  const backend = cmd.values["backend"] ?? "$TTS_BACKEND / edge";
+
+  const fresh = cmd.values["fresh"] === true;
+  const flagBackend = cmd.values["backend"];
+  const backendName =
+    typeof flagBackend === "string"
+      ? flagBackend
+      : (envOrUndefined("TTS_BACKEND") ?? "edge");
+  const paid =
+    isTtsBackendName(backendName) && PAID_TTS_BACKENDS.has(backendName);
+  const pending = fresh ? s.segments : s.segments - done;
+  const lastMeta = dir.state.steps.tts?.meta;
+  const lastBackend =
+    typeof lastMeta?.["backend"] === "string" ? lastMeta["backend"] : undefined;
+  const lastVoice =
+    typeof lastMeta?.["voice"] === "string" ? lastMeta["voice"] : undefined;
+
   return {
     route: "tts run",
     plan: [
-      `逐段合成（后端 ${String(backend)}），已存在的段跳过`,
+      ...(fresh
+        ? ["--fresh: 先清空 audio/ 下的分段、合并音轨与 durations.json"]
+        : []),
+      `逐段合成（后端 ${typeof flagBackend === "string" ? flagBackend : "$TTS_BACKEND / edge"}）` +
+        (fresh ? "" : "，已存在的段跳过"),
       "ffprobe 实测每段时长 → durations.json",
       "归一化 + 拼接 → merged.m4a，并断言总时长一致",
     ],
@@ -172,8 +199,21 @@ async function ttsPlan(cmd: ParsedCommand): Promise<DryRunPlan> {
     estimate: {
       段数: s.segments,
       已合成: done,
-      待合成: s.segments - done,
+      待合成: pending,
       预计音频时长: `${s.seconds}s`,
+      ...(lastBackend === undefined
+        ? {}
+        : { 上次后端: `${lastBackend} / ${lastVoice ?? "?"}` }),
+      // 收费后端的字符量是"这次要花多少钱"的唯一可预估口径：口播字数。
+      // 真跑之后命令会输出平台返回的 usage_characters（那才是账单口径）。
+      ...(paid
+        ? {
+            计费提示: `${backendName} 按字符计费，本次将合成 ${pending}/${s.segments} 段`,
+            待合成字符: Math.round(
+              (s.chars * pending) / Math.max(1, s.segments),
+            ),
+          }
+        : {}),
     },
   };
 }
@@ -310,7 +350,7 @@ function metricsPlan(cmd: ParsedCommand): DryRunPlan {
 }
 
 function reportPlan(route: string, cmd: ParsedCommand): DryRunPlan {
-  const root = cmd.dataRoot ?? process.env["DATA_ROOT"] ?? "./data";
+  const root = cmd.dataRoot ?? envOrUndefined("DATA_ROOT") ?? "./data";
   const file = join(root, "metrics.jsonl");
   const weeks = existsSync(file)
     ? new Set(

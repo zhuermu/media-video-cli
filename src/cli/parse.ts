@@ -28,6 +28,7 @@
 
 import { parseArgs } from "node:util";
 
+import { TTS_BACKEND_NAMES } from "@core/config";
 import { ValidationError } from "@core/errors";
 
 /** 参数类型（util.parseArgs 的两种）. */
@@ -163,15 +164,26 @@ export const ROUTES: RouteSpec[] = [
     options: {
       backend: {
         type: "string",
-        desc: "语音合成后端：edge=免费联网 Edge TTS，say=macOS 离线",
-        values: ["edge", "say"],
-        default: "$TTS_BACKEND，未设则 edge",
+        desc:
+          "语音合成后端：edge=免费联网 Edge TTS，say=macOS 离线，" +
+          "minimax=收费云端（定稿后换成品音色时才用，需要 MINIMAX_API_KEY）",
+        values: TTS_BACKEND_NAMES,
+        default: "$TTS_BACKEND，未设则 edge（收费后端永远不会被隐式选中）",
       },
       voice: {
         type: "string",
-        desc: "音色 id（后端各自的音色名）",
-        default: "$TTS_VOICE，未设则后端默认音色",
-        example: "zh-CN-YunxiNeural",
+        desc:
+          "音色 id（后端各自的音色名；minimax 见 " +
+          "platform.minimaxi.com/docs/faq/system-voice-id）",
+        default:
+          "$TTS_VOICE（同后端时）或后端默认音色；minimax 可用 $MINIMAX_VOICE 单独钉住",
+        example: "male-qn-jingying",
+      },
+      fresh: {
+        type: "boolean",
+        desc:
+          "先清空 audio/（分段 + 合并音轨 + durations.json）再全量重合成；" +
+          "换后端或换音色时必须给，否则已存在的段不会被重合成",
       },
     },
     summary: "逐段语音合成并合并音轨（U2）",
@@ -186,6 +198,10 @@ export const ROUTES: RouteSpec[] = [
     notes: [
       "逐段幂等：已存在的 seg-NN.mp3 会跳过，中断后重跑只补缺的段",
       "只有网络类错误重试（500ms→1000ms），其余立即失败并带后端与段号",
+      "默认用免费后端（edge）出草稿；minimax 按字符计费，建议只在定稿后跑一次：" +
+        "vagent tts run <slug> --backend minimax --fresh",
+      "minimax 配置在 .env：MINIMAX_API_KEY 必填，MINIMAX_MODEL / MINIMAX_VOICE / " +
+        "MINIMAX_SPEED / MINIMAX_BASE_URL 可选；计费字符数会写进 state.json 与命令输出",
     ],
   },
   {

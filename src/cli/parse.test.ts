@@ -171,7 +171,23 @@ describe("parseCli 值域校验", () => {
   test("枚举非法值报错并列出值域", () => {
     expect(() =>
       parseCli(["tts", "run", "demo", "--backend", "azure"]),
-    ).toThrow(/edge \| say/);
+    ).toThrow(/edge \| say \| minimax/);
+  });
+
+  test("tts run 的收费后端与 --fresh 都在路由表里", () => {
+    const cmd = parseCli([
+      "tts",
+      "run",
+      "demo",
+      "--backend",
+      "minimax",
+      "--voice",
+      "male-qn-jingying",
+      "--fresh",
+    ]);
+    expect(cmd.values["backend"]).toBe("minimax");
+    expect(cmd.values["voice"]).toBe("male-qn-jingying");
+    expect(cmd.values["fresh"]).toBe(true);
   });
 
   test("全局 --dry-run / --data-root 在任何命令上都能解析", () => {

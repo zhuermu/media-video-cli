@@ -65,6 +65,7 @@ async function dispatch(cmd: ParsedCommand): Promise<CommandResult> {
         slug,
         backend: str(v, "backend"),
         voice: str(v, "voice"),
+        fresh: v["fresh"] === true,
         videosRoot: cmd.videosRoot,
       });
     case "compose run":

@@ -20,6 +20,7 @@ import { copyFileSync, existsSync, readdirSync, statSync } from "node:fs";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { basename, join, resolve } from "node:path";
 
+import { envOrUndefined } from "@core/config";
 import { IoError, NotFoundError, ValidationError } from "@core/errors";
 
 // ---- Locked type contracts (component-methods.md 核心类型定义) ----
@@ -76,7 +77,7 @@ export interface WorkdirOptions {
 
 function resolveVideosRoot(options?: WorkdirOptions): string {
   return resolve(
-    options?.videosRoot ?? process.env["VIDEOS_ROOT"] ?? "./videos",
+    options?.videosRoot ?? envOrUndefined("VIDEOS_ROOT") ?? "./videos",
   );
 }
 

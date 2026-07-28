@@ -2,8 +2,9 @@
  * @module @core/tts (synthesize)
  *
  * Synthesis orchestration: synthesizeScript (per-segment, idempotent,
- * network-only retry) and mergeAudio (normalize → concat → duration
- * assertion → prefix-sum offsets).
+ * network-only retry), mergeAudio (normalize → concat → duration
+ * assertion → prefix-sum offsets) and clearAudio (the explicit escape hatch
+ * from the idempotence rule, used when the voice itself changes).
  *
  * Boundary rules honored here:
  * - BR-U2-1: ONLY TTSNetworkError is retryable, ≤3 retries with exponential
@@ -22,6 +23,7 @@ import {
   copyFileSync,
   existsSync,
   mkdirSync,
+  readdirSync,
   renameSync,
   rmSync,
 } from "node:fs";
@@ -268,6 +270,33 @@ export async function mergeAudio(
 /** Absolute path of `audio/durations.json` for a video dir. */
 export function durationsPath(dir: VideoDir): string {
   return join(dir.paths.audio, DURATIONS_FILE);
+}
+
+/**
+ * Discards every audio artifact of a video (`audio/` 下的分段、合并音轨、
+ * durations.json、归一化残留），returning the removed file names.
+ *
+ * 存在的理由是 BR-U2-2：已存在的 `seg-NN.mp3` 永不重合成。换后端或换音色时，
+ * 这条不变式会让"重跑"变成一次静默的空转——用户以为换了音色，实际拿到的还是
+ * 旧音频。所以"换声音"必须是一次显式的清空（`tts run --fresh`），而不是靠
+ * 猜测去判断某个已存在的文件是不是该被覆盖。
+ */
+export function clearAudio(dir: VideoDir): string[] {
+  if (!existsSync(dir.paths.audio)) return [];
+  const removed: string[] = [];
+  for (const name of readdirSync(dir.paths.audio)) {
+    if (
+      !/^seg-.+\.(mp3|m4a)$/.test(name) &&
+      name !== MERGED_FILE &&
+      name !== DURATIONS_FILE &&
+      !name.endsWith(".tmp")
+    ) {
+      continue;
+    }
+    rmSync(join(dir.paths.audio, name), { force: true });
+    removed.push(name);
+  }
+  return removed.sort();
 }
 
 /** Reads durations.json if present and parseable (undefined otherwise). */

@@ -25,7 +25,8 @@
 
 - [Bun](https://bun.sh) ≥ 1.3（运行时 + 包管理 + 测试）
 - FFmpeg / ffprobe：`brew install ffmpeg`
-- TTS：默认 Edge TTS（免费、联网，`msedge-tts`）；离线可切 macOS `say`
+- TTS：默认 Edge TTS（免费、联网，`msedge-tts`）；离线可切 macOS `say`；
+  定稿可切 MiniMax（收费，需 `MINIMAX_API_KEY`）
 
 ```bash
 git clone git@github.com:zhuermu/media-video-cli.git
@@ -101,17 +102,42 @@ vagent whiteboard render ./article.md                 # 整片，约 1 小时
 
 `.env`（自研解析，无 dotenv 依赖）。合并时**不覆盖**已存在的环境变量。全部可选：
 
-| 键              | 默认值                                        | 说明                           |
-| --------------- | --------------------------------------------- | ------------------------------ |
-| `TTS_BACKEND`   | `edge`                                        | `edge` \| `say`                |
-| `TTS_VOICE`     | 随后端（`zh-CN-XiaoxiaoNeural` / `Tingting`） | 音色                           |
-| `CARD_TEMPLATE` | `default`                                     | `assets/templates/<name>.json` |
-| `VIDEOS_ROOT`   | `./videos`                                    | 每条视频的工作目录根           |
-| `DATA_ROOT`     | `./data`                                      | 发布登记 / 指标数据面          |
-| `FFMPEG_PATH`   | `ffmpeg`                                      | 显式路径或 PATH 名，启动时探活 |
+| 键                 | 默认值                                        | 说明                                                  |
+| ------------------ | --------------------------------------------- | ----------------------------------------------------- |
+| `TTS_BACKEND`      | `edge`                                        | `edge` \| `say` \| `minimax`（后者收费，别设成默认）  |
+| `TTS_VOICE`        | 随后端（`zh-CN-XiaoxiaoNeural` / `Tingting`） | 音色                                                  |
+| `CARD_TEMPLATE`    | `default`                                     | `assets/templates/<name>.json`                        |
+| `VIDEOS_ROOT`      | `./videos`                                    | 每条视频的工作目录根                                  |
+| `DATA_ROOT`        | `./data`                                      | 发布登记 / 指标数据面                                 |
+| `FFMPEG_PATH`      | `ffmpeg`                                      | 显式路径或 PATH 名，启动时探活                        |
+| `MINIMAX_API_KEY`  | —                                             | MiniMax 接口密钥；缺它 `--backend minimax` 直接报错   |
+| `MINIMAX_VOICE`    | `male-qn-jingying`                            | 定稿音色 id（只影响 minimax，不动免费后端的默认音色） |
+| `MINIMAX_MODEL`    | `speech-2.6-hd`                               | `speech-2.8-hd` / `-turbo` / `speech-02-hd` … 共 8 个 |
+| `MINIMAX_SPEED`    | `1`                                           | 语速 `[0.5, 2]`                                       |
+| `MINIMAX_BASE_URL` | `https://api.minimaxi.com`                    | 国际站是 `https://api.minimax.io`                     |
+| `MINIMAX_GROUP_ID` | —                                             | 仅老账号需要；设了才作为 `GroupId` 查询参数带上       |
 
 凭据只放 gitignore 的 `.env` 或 macOS Keychain；所有日志/错误输出经
 `redact()` 掩码。**任何真实密钥都不得进入代码、配置、文档、fixture 或 git 历史。**
+
+### 语音合成：草稿免费，定稿才付费
+
+默认后端是免费的 Edge TTS——所有草稿、所有重跑都不花钱。定稿之后（脚本过了停点
+1、片子节奏也确认了）再用收费音色重合成一次。
+
+密钥只放一个地方：**`media-video-cli/.env` 里的 `MINIMAX_API_KEY=`**（该文件已被
+gitignore，CLI 启动时自行解析，不经过 dotenv 依赖；所有日志与报错都过 `redact()`
+掩码）。没有这份 .env 就 `cp .env.example .env` 再填——留空的键等价于「没配」。
+
+```bash
+vagent tts run <slug> --dry-run --backend minimax   # 先看要合成多少字符（不花钱）
+vagent tts run <slug> --backend minimax --fresh     # --fresh 必须给：清掉草稿音频重合成
+vagent compose run <slug>                           # 音频变了，成片要重合
+```
+
+`--fresh` 不是可选的礼貌：已存在的 `seg-NN.mp3` 永不重合成（幂等约定），不清空
+就换后端等于一次静默空转。命令跑完会输出平台返回的计费字符数，并写进
+`state.json`，下次能看出上一次花了多少。
 
 ## 文档
 
@@ -135,7 +161,7 @@ src/
     workdir/   每条视频的工作目录管理
     script/    script.json 校验 / 时长估算 / 审核物 / 领域词表拦截
     cards/     卡片版式、SVG、栅格化、帧表
-    tts/       合成编排 + backends/（edge、say）
+    tts/       合成编排 + backends/（edge、say 免费；minimax 收费）
     render/    视频渲染（ffmpeg 后端）
     pkg/       发布包组装 / 契约校验 / 检查单
     registry/  发布登记、周指标、报表（JSONL）

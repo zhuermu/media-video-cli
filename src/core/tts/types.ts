@@ -51,15 +51,30 @@ export interface VoiceOpts {
 }
 
 /**
+ * Running billing counter of a paid backend (free backends leave it absent).
+ *
+ * Money spent must be visible in the command output, not only on the vendor's
+ * invoice: `tts run` reads this after synthesis and reports it (and records it
+ * into state.json), so a re-run that silently doubled the bill is detectable.
+ */
+export interface TtsUsage {
+  /** Billed characters as reported by the vendor (`usage_characters`). */
+  characters: number;
+  /** Number of billable API calls made. */
+  requests: number;
+}
+
+/**
  * TTS port (策略实体): one implementation per backend, selected via
- * AppConfig.ttsBackend through the registry. Paid backends (P2) plug into
- * the same table.
+ * AppConfig.ttsBackend through the registry.
  */
 export interface TtsBackend {
   /** Backend identifier used in TtsError.backend context. */
   readonly id: string;
   /** Voice used when the caller does not specify one (config default). */
   readonly defaultVoice: string;
+  /** Paid backends only: accumulated billing counters (see {@link TtsUsage}). */
+  readonly usage?: TtsUsage;
   /**
    * Synthesizes one segment of text to an audio file (backend-managed temp
    * location; the orchestrator moves it into `audio/seg-NN.mp3`).

@@ -214,6 +214,90 @@ describe("--dry-run 计划内容", () => {
     expect(plan.estimate?.["待合成"]).toBe(3);
   });
 
+  test("tts run 的「已合成」按零基段名数（seg-00 起，不是 seg-01）", async () => {
+    const { videosRoot, slug } = await makeScriptedWorkdir();
+    const audio = join(videosRoot, slug, "audio");
+    mkdirSync(audio, { recursive: true });
+    writeFileSync(join(audio, "seg-00.mp3"), "x");
+    writeFileSync(join(audio, "seg-01.mp3"), "x");
+
+    const plan = (
+      await runDryRun(
+        parseCli([
+          "tts",
+          "run",
+          slug,
+          "--dry-run",
+          "--videos-root",
+          videosRoot,
+        ]),
+      )
+    ).data as unknown as DryRunPlan;
+    expect(plan.estimate?.["已合成"]).toBe(2);
+    expect(plan.estimate?.["待合成"]).toBe(1);
+  });
+
+  test("--fresh 的计划声明会先清空 audio/，待合成回到全量", async () => {
+    const { videosRoot, slug } = await makeScriptedWorkdir();
+    const audio = join(videosRoot, slug, "audio");
+    mkdirSync(audio, { recursive: true });
+    writeFileSync(join(audio, "seg-00.mp3"), "x");
+
+    const plan = (
+      await runDryRun(
+        parseCli([
+          "tts",
+          "run",
+          slug,
+          "--fresh",
+          "--dry-run",
+          "--videos-root",
+          videosRoot,
+        ]),
+      )
+    ).data as unknown as DryRunPlan;
+    expect(plan.plan[0]).toContain("清空 audio/");
+    expect(plan.estimate?.["待合成"]).toBe(3);
+    // 试跑必须零写入：已有的段还在
+    expect(existsSync(join(audio, "seg-00.mp3"))).toBe(true);
+  });
+
+  test("收费后端在试跑里先报计费口径（免费后端不报）", async () => {
+    const { videosRoot, slug } = await makeScriptedWorkdir();
+    const paid = (
+      await runDryRun(
+        parseCli([
+          "tts",
+          "run",
+          slug,
+          "--backend",
+          "minimax",
+          "--dry-run",
+          "--videos-root",
+          videosRoot,
+        ]),
+      )
+    ).data as unknown as DryRunPlan;
+    expect(String(paid.estimate?.["计费提示"])).toContain("按字符计费");
+    expect(Number(paid.estimate?.["待合成字符"])).toBeGreaterThan(0);
+
+    const free = (
+      await runDryRun(
+        parseCli([
+          "tts",
+          "run",
+          slug,
+          "--backend",
+          "edge",
+          "--dry-run",
+          "--videos-root",
+          videosRoot,
+        ]),
+      )
+    ).data as unknown as DryRunPlan;
+    expect(free.estimate?.["计费提示"]).toBeUndefined();
+  });
+
   test("whiteboard render 给帧数与粗估声明，且不建 frames 目录", async () => {
     const framesDir = join(makeTempRoot("dry-frames-"), "frames");
     const cmd = parseCli([

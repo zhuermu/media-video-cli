@@ -208,12 +208,28 @@ vagent script validate <slug>
 ### 步骤 5 · 语音合成与视频合成
 
 ```bash
-vagent tts run <slug>          # 可选 --backend edge|say --voice <音色>
+vagent tts run <slug>          # 可选 --backend edge|say|minimax --voice <音色>
 vagent compose run <slug>
 ```
 
 两条命令运行期间把 stderr 的关键进度摘要转述给用户（如「正在合成第 N 段」「正在渲染
 卡片帧」）。任一非零退出 → 按铁律 2 转述后停。
+
+**默认用免费后端（edge）。`minimax` 是收费后端，只在用户明确要求「换成品音色」时用，
+不要主动选它。** 用户提出时的正确顺序是：
+
+```bash
+vagent tts run <slug> --dry-run --json --backend minimax   # 先报要合成多少字符
+vagent tts run <slug> --backend minimax --fresh            # 用户确认后再真跑
+vagent compose run <slug>                                  # 音频换了，必须重合成片
+```
+
+`--fresh` 必须给：已存在的分段音频永不重合成，不清空就换后端等于一次静默空转（命令会
+直接报错要求 `--fresh`）。真跑完把输出里的计费字符数转述给用户。
+
+密钥只认一个位置：`media-video-cli/.env` 的 `MINIMAX_API_KEY=`。**不要向用户索要密钥
+明文、不要把密钥写进任何命令行或文件**；缺密钥时 CLI 会以退出码 2 报出可操作提示，按
+铁律 2 原样转述给用户即可。
 
 ### 步骤 6 · 生成 metadata 五件
 

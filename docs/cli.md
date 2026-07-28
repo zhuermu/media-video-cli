@@ -134,7 +134,7 @@ vagent script validate <slug>
 #### `tts run`
 
 ```
-vagent tts run <slug> [--backend <edge|say>] [--voice <voice>]
+vagent tts run <slug> [--backend <edge|say|minimax>] [--voice <voice>] [--fresh]
 ```
 
 逐段语音合成并合并音轨（U2）（代价：贵，先 --dry-run）
@@ -145,10 +145,11 @@ vagent tts run <slug> [--backend <edge|say>] [--voice <voice>]
 | -------- | -------------------------------------------- |
 | `<slug>` | init 时用的工作目录名（例：`graph-vs-loop`） |
 
-| 参数        | 值域        | 必填 | 默认                           | 说明                                                   |
-| ----------- | ----------- | ---- | ------------------------------ | ------------------------------------------------------ |
-| `--backend` | edge \| say | 否   | $TTS_BACKEND，未设则 edge      | 语音合成后端：edge=免费联网 Edge TTS，say=macOS 离线   |
-| `--voice`   | 字符串      | 否   | $TTS_VOICE，未设则后端默认音色 | 音色 id（后端各自的音色名）（例：`zh-CN-YunxiNeural`） |
+| 参数        | 值域                   | 必填 | 默认                                                                       | 说明                                                                                                                   |
+| ----------- | ---------------------- | ---- | -------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| `--backend` | edge \| say \| minimax | 否   | $TTS_BACKEND，未设则 edge（收费后端永远不会被隐式选中）                    | 语音合成后端：edge=免费联网 Edge TTS，say=macOS 离线，minimax=收费云端（定稿后换成品音色时才用，需要 MINIMAX_API_KEY） |
+| `--voice`   | 字符串                 | 否   | $TTS_VOICE（同后端时）或后端默认音色；minimax 可用 $MINIMAX_VOICE 单独钉住 | 音色 id（后端各自的音色名；minimax 见 platform.minimaxi.com/docs/faq/system-voice-id）（例：`male-qn-jingying`）       |
+| `--fresh`   | 开关                   | 否   | —                                                                          | 先清空 audio/（分段 + 合并音轨 + durations.json）再全量重合成；换后端或换音色时必须给，否则已存在的段不会被重合成      |
 
 **产物**：
 
@@ -159,6 +160,10 @@ vagent tts run <slug> [--backend <edge|say>] [--voice <voice>]
 - 逐段幂等：已存在的 seg-NN.mp3 会跳过，中断后重跑只补缺的段
 
 - 只有网络类错误重试（500ms→1000ms），其余立即失败并带后端与段号
+
+- 默认用免费后端（edge）出草稿；minimax 按字符计费，建议只在定稿后跑一次：vagent tts run <slug> --backend minimax --fresh
+
+- minimax 配置在 .env：MINIMAX_API_KEY 必填，MINIMAX_MODEL / MINIMAX_VOICE / MINIMAX_SPEED / MINIMAX_BASE_URL 可选；计费字符数会写进 state.json 与命令输出
 
 #### `compose run`
 

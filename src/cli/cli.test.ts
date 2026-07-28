@@ -13,12 +13,14 @@ import {
   existsSync,
   mkdirSync,
   mkdtempSync,
+  readFileSync,
   rmSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { MediaInfo } from "@adapters/ffmpeg";
 import {
   AppError,
   ContractViolationError,
@@ -34,6 +36,7 @@ import {
   TTSRateLimitError,
   ValidationError,
 } from "@core/errors";
+import type { TtsBackend } from "@core/tts";
 import { load } from "@core/workdir";
 
 import {
@@ -48,6 +51,7 @@ import { runMetricsAdd } from "./commands/metrics";
 import { runRegisterAdd } from "./commands/register";
 import { runReportBaseline, runReportWeekly } from "./commands/report";
 import { runScriptValidate } from "./commands/script";
+import { runTtsRun } from "./commands/tts";
 import { err, ok } from "./envelope";
 import { mapExitCode } from "./exit";
 import { parseCli } from "./parse";
@@ -298,8 +302,223 @@ describe("script validate command", () => {
   });
 });
 
-// ---- --json envelope from a real command result (BR-U6-2) --------------------------
+// ---- tts run: 后端选择 / 换声音必须显式 / 收费口径 --------------------------------
 
+/** Fake backend写真实临时 mp3；`billPerCall > 0` 时模拟收费后端的账单计数. */
+class StubTtsBackend {
+  readonly defaultVoice = "stub-voice";
+  readonly usage?: { characters: number; requests: number };
+  readonly voices: string[] = [];
+
+  constructor(
+    readonly id: string,
+    private readonly billPerCall = 0,
+  ) {
+    if (billPerCall > 0) this.usage = { characters: 0, requests: 0 };
+  }
+
+  async synthesize(
+    text: string,
+    voice: { name: string; segmentIndex?: number },
+  ): Promise<{ path: string; durationSec: number }> {
+    this.voices.push(voice.name);
+    const dir = makeTempRoot("cli-stub-tts-");
+    const path = join(dir, "out.mp3");
+    writeFileSync(path, `audio:${text}`);
+    if (this.usage !== undefined) {
+      this.usage.characters += this.billPerCall;
+      this.usage.requests += 1;
+    }
+    return { path, durationSec: 0 };
+  }
+}
+
+const stubAppConfig = {
+  ttsBackend: "edge" as const,
+  ttsVoice: "zh-CN-XiaoxiaoNeural",
+  cardTemplate: "default",
+  videosRoot: "./videos",
+  dataRoot: "./data",
+  ffmpegPath: "ffmpeg",
+};
+
+/** offline seams: 假 probe（每段 2s）+ 假 ffmpeg（不真的起进程）. */
+function ttsSeams(backend: StubTtsBackend) {
+  const probeFn = async (): Promise<MediaInfo> => ({
+    width: 0,
+    height: 0,
+    durationSec: 2,
+    videoStreams: 0,
+    audioStreams: 1,
+  });
+  return {
+    config: stubAppConfig,
+    backendFactory: () => backend as unknown as TtsBackend,
+    synthesizeOptions: { probeFn },
+    mergeOptions: {
+      probeFn: async (): Promise<MediaInfo> => ({
+        width: 0,
+        height: 0,
+        durationSec: 6,
+        videoStreams: 0,
+        audioStreams: 1,
+      }),
+      runFn: async (): Promise<void> => {},
+    },
+  };
+}
+
+/** `CommandResult.data` 是 `object`；测试里按键读需要一次显式收窄. */
+function dataOf(result: { data: object }): Record<string, unknown> {
+  return result.data as Record<string, unknown>;
+}
+
+/** init + script.json + script validate（把 script 步骤标完成）. */
+async function seedThroughScript(prefix: string, slug: string) {
+  const videosRoot = makeTempRoot(prefix);
+  await runInit({ slug, topic: "bun 上手", videosRoot });
+  writeFileSync(
+    join(videosRoot, slug, "script", "script.json"),
+    JSON.stringify(validScript()),
+  );
+  await runScriptValidate(
+    { slug, videosRoot },
+    { guardTablePath: makeBenignGuardTable() },
+  );
+  return videosRoot;
+}
+
+describe("tts run command", () => {
+  test("免费后端出草稿：段数 / 音轨 / state.json 记后端与音色，不带计费字段", async () => {
+    const videosRoot = await seedThroughScript("cli-tts-", "draft");
+    const backend = new StubTtsBackend("edge");
+
+    const result = await runTtsRun(
+      { slug: "draft", videosRoot },
+      ttsSeams(backend),
+    );
+
+    expect(result.step).toBe("tts");
+    expect(dataOf(result)["segments"]).toBe(3);
+    expect(dataOf(result)["backend"]).toBe("edge");
+    expect(dataOf(result)["paid"]).toBe(false);
+    expect(dataOf(result)["billedCharacters"]).toBeUndefined();
+    expect(result.text).not.toContain("计费字符");
+    expect(backend.voices).toEqual(Array(3).fill("zh-CN-XiaoxiaoNeural"));
+
+    const dir = await load("draft", { videosRoot });
+    expect(dir.state.steps.tts?.meta).toMatchObject({
+      backend: "edge",
+      voice: "zh-CN-XiaoxiaoNeural",
+      segments: 3,
+    });
+  });
+
+  test("--backend 非法值报错并列出完整值域（含 minimax）", async () => {
+    const videosRoot = await seedThroughScript("cli-tts-bad-", "bad-backend");
+    await expect(
+      runTtsRun(
+        { slug: "bad-backend", backend: "azure", videosRoot },
+        ttsSeams(new StubTtsBackend("edge")),
+      ),
+    ).rejects.toThrow(/edge \| say \| minimax/);
+  });
+
+  test("换后端而不给 --fresh 会被拦住（否则是一次静默空转）", async () => {
+    const videosRoot = await seedThroughScript("cli-tts-switch-", "switch");
+    await runTtsRun(
+      { slug: "switch", videosRoot },
+      ttsSeams(new StubTtsBackend("edge")),
+    );
+
+    const paid = new StubTtsBackend("minimax", 40);
+    await expect(
+      runTtsRun(
+        { slug: "switch", backend: "minimax", videosRoot },
+        ttsSeams(paid),
+      ),
+    ).rejects.toThrow(ValidationError);
+    try {
+      await runTtsRun(
+        { slug: "switch", backend: "minimax", videosRoot },
+        ttsSeams(paid),
+      );
+      expect.unreachable();
+    } catch (error) {
+      const message = (error as Error).message;
+      expect(message).toContain("--fresh");
+      expect(message).toContain("edge"); // 上一次的取值
+      expect(message).toContain("minimax"); // 这一次的取值
+      expect(message).toContain("重新计费"); // 收费后端的额外提醒
+    }
+    // 被拦住时一个字符都没合成
+    expect(paid.usage).toEqual({ characters: 0, requests: 0 });
+  });
+
+  test("定稿换收费音色：--fresh 清空旧音频、重合成、报计费字符", async () => {
+    const videosRoot = await seedThroughScript("cli-tts-final-", "final");
+    const free = new StubTtsBackend("edge");
+    await runTtsRun({ slug: "final", videosRoot }, ttsSeams(free));
+    const segPath = join(videosRoot, "final", "audio", "seg-00.mp3");
+    const draftBytes = readFileSync(segPath).byteLength;
+    expect(draftBytes).toBeGreaterThan(0);
+
+    const paid = new StubTtsBackend("minimax", 40);
+    const result = await runTtsRun(
+      {
+        slug: "final",
+        backend: "minimax",
+        voice: "male-qn-jingying",
+        fresh: true,
+        videosRoot,
+      },
+      ttsSeams(paid),
+    );
+
+    expect(dataOf(result)["backend"]).toBe("minimax");
+    expect(dataOf(result)["paid"]).toBe(true);
+    expect(dataOf(result)["billedCharacters"]).toBe(120); // 3 段 × 40
+    expect(dataOf(result)["billedRequests"]).toBe(3);
+    expect(dataOf(result)["cleared"]).toBeDefined();
+    expect(result.text).toContain("计费字符 120");
+    expect(paid.voices).toEqual(Array(3).fill("male-qn-jingying"));
+
+    // 旧分段确实被清掉并重新合成了（不是 BR-U2-2 的跳过）
+    expect(existsSync(segPath)).toBe(true);
+    const dir = await load("final", { videosRoot });
+    expect(dir.state.steps.tts?.meta).toMatchObject({
+      backend: "minimax",
+      voice: "male-qn-jingying",
+      billedCharacters: 120,
+    });
+  });
+
+  test("同后端同音色重跑不需要 --fresh（续跑仍然是默认行为）", async () => {
+    const videosRoot = await seedThroughScript("cli-tts-resume-", "resume");
+    const backend = new StubTtsBackend("edge");
+    await runTtsRun({ slug: "resume", videosRoot }, ttsSeams(backend));
+    const again = new StubTtsBackend("edge");
+    const result = await runTtsRun(
+      { slug: "resume", videosRoot },
+      ttsSeams(again),
+    );
+    expect(result.step).toBe("tts");
+    expect(again.voices).toEqual([]); // 三段都命中幂等跳过
+  });
+
+  test("script 步骤未完成时点名下一步命令", async () => {
+    const videosRoot = makeTempRoot("cli-tts-nostep-");
+    await runInit({ slug: "no-script", topic: "t", videosRoot });
+    await expect(
+      runTtsRun(
+        { slug: "no-script", videosRoot },
+        ttsSeams(new StubTtsBackend("edge")),
+      ),
+    ).rejects.toThrow(/script validate no-script/);
+  });
+});
+
+// ---- --json envelope from a real command result (BR-U6-2) --------------------------
 describe("--json envelope", () => {
   test("a command result wraps into the JsonEnvelope stdout shape", async () => {
     const videosRoot = makeTempRoot("cli-json-");

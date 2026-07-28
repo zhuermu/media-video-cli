@@ -11,6 +11,8 @@
  * per-platform data-week annotation has a home. No locked field changed.
  */
 
+import { envOrUndefined } from "@core/config";
+
 /** Publishing platforms (locked enum). */
 export type Platform = "shipinhao" | "douyin";
 
@@ -105,5 +107,5 @@ export const BASELINE_WEEKS_REQUIRED = 4;
 
 /** Resolves the registry data root (explicit param > env > default). */
 export function resolveDataRoot(options?: RegistryOptions): string {
-  return options?.dataRoot ?? process.env["DATA_ROOT"] ?? "./data";
+  return options?.dataRoot ?? envOrUndefined("DATA_ROOT") ?? "./data";
 }

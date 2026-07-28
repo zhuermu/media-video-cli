@@ -35,7 +35,11 @@ import { basename, join } from "node:path";
 
 import type { MediaInfo } from "@adapters/ffmpeg";
 import { probe, runCaptureStdout, runFfmpeg } from "@adapters/ffmpeg";
-import { DEFAULT_TTS_VOICES } from "@core/config";
+import {
+  defaultVoiceFor,
+  envOrUndefined,
+  isTtsBackendName,
+} from "@core/config";
 import { IoError, ValidationError } from "@core/errors";
 import { authorBlock } from "@core/persona";
 import type { Persona } from "@core/persona";
@@ -146,7 +150,7 @@ export async function assemble(
   const runFn = options.runFn ?? runFfmpeg;
   const captureFn = options.captureFn ?? runCaptureStdout;
   const ffmpegPath =
-    options.ffmpegPath ?? process.env["FFMPEG_PATH"] ?? "ffmpeg";
+    options.ffmpegPath ?? envOrUndefined("FFMPEG_PATH") ?? "ffmpeg";
 
   // ---- Step 1: pre-flight (one itemized ValidationError, BR-U5-12) ----
   const violations: string[] = [];
@@ -400,15 +404,14 @@ async function resolveProvenance(
   ffmpegPath: string,
 ): Promise<MaterialsProvenance> {
   const ttsBackend =
-    overrides.ttsBackend ?? process.env["TTS_BACKEND"] ?? "edge";
-  const defaultVoice =
-    ttsBackend === "edge" || ttsBackend === "say"
-      ? DEFAULT_TTS_VOICES[ttsBackend]
-      : "未知";
+    overrides.ttsBackend ?? envOrUndefined("TTS_BACKEND") ?? "edge";
+  const defaultVoice = isTtsBackendName(ttsBackend)
+    ? defaultVoiceFor(ttsBackend)
+    : "未知";
   const ttsVoice =
-    overrides.ttsVoice ?? process.env["TTS_VOICE"] ?? defaultVoice;
+    overrides.ttsVoice ?? envOrUndefined("TTS_VOICE") ?? defaultVoice;
   const cardTemplate =
-    overrides.cardTemplate ?? process.env["CARD_TEMPLATE"] ?? "default";
+    overrides.cardTemplate ?? envOrUndefined("CARD_TEMPLATE") ?? "default";
 
   let ffmpegVersion = overrides.ffmpegVersion;
   if (ffmpegVersion === undefined) {
